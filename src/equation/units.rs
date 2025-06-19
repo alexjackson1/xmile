@@ -143,7 +143,7 @@ pub mod baseline {
     where
         S: AsRef<str>,
     {
-        Identifier::new_unit(name.as_ref()).expect("Invalid identifier")
+        Identifier::parse_unit_name(name.as_ref()).expect("Invalid identifier")
     }
 
     fn _idents<S>(names: &[S]) -> Vec<Identifier>

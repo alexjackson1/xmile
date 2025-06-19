@@ -43,25 +43,25 @@
 //! use xmile::Identifier;
 //!
 //! // Basic identifier
-//! let id1 = Identifier::new("Cash_Balance").unwrap();
+//! let id1 = Identifier::parse_default("Cash_Balance").unwrap();
 //! assert_eq!(id1.normalized(), "Cash Balance");
 //!
 //! // Quoted identifier with escape sequence
-//! let id2 = Identifier::new("\"revenue\\ngap\"").unwrap();
+//! let id2 = Identifier::parse_default("\"revenue\\ngap\"").unwrap();
 //! assert_eq!(id2.normalized(), "revenue gap");
 //!
 //! // Namespace qualified
-//! let id3 = Identifier::new("std.function").unwrap();
+//! let id3 = Identifier::parse_default("std.function").unwrap();
 //! assert!(id3.is_qualified());
 //! assert_eq!(id3.unqualified(), "function");
 //!
 //! // Equivalence checking
-//! let id4 = Identifier::new("Cash_Balance").unwrap();
-//! let id5 = Identifier::new("cash_balance").unwrap();
+//! let id4 = Identifier::parse_default("Cash_Balance").unwrap();
+//! let id5 = Identifier::parse_default("cash_balance").unwrap();
 //! assert_eq!(id4, id5); // Case-insensitive
 //!
-//! let id6 = Identifier::new("wom_multiplier").unwrap();
-//! let id7 = Identifier::new("\"wom multiplier\"").unwrap();
+//! let id6 = Identifier::parse_default("wom_multiplier").unwrap();
+//! let id7 = Identifier::parse_default("\"wom multiplier\"").unwrap();
 //! assert_eq!(id6, id7); // Whitespace-insensitive
 //! ```
 
@@ -220,14 +220,12 @@ impl Identifier {
 }
 
 impl Identifier {
-    /// Creates a new identifier from a string.
-    ///
-    /// This is equivalent to using `FromStr::from_str()` but provides a more
-    /// convenient method name.
+    /// Parses a new identifier from a string.
     ///
     /// # Arguments
     ///
     /// * `input` - The identifier string to parse
+    /// * `options` - Parsing options to customize behavior
     ///
     /// # Returns
     ///
@@ -237,38 +235,17 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::Identifier;
+    /// use xmile::equation::identifier::{Identifier, IdentifierOptions};
     ///
-    /// let id = Identifier::new("Cash_Balance").unwrap();
+    /// let opts = IdentifierOptions {
+    ///     allow_dollar: false,
+    ///     allow_digit: false,
+    ///     allow_reserved: false,
+    /// };
+    /// let id = Identifier::parse("Cash_Balance", opts).unwrap();
     /// assert_eq!(id.normalized(), "Cash Balance");
     /// ```
-    pub fn new(input: &str) -> Result<Self, IdentifierError> {
-        Self::from_str(input)
-    }
-
-    /// Creates a new identifier for units of measure.
-    ///
-    /// This is similar to `new()` but allows for identifiers that start with a dollar sign (`$`),
-    /// which is common for units of measure in XMILE.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - The identifier string to parse
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(Identifier)` if the string is a valid XMILE identifier for units,
-    /// or `Err(IdentifierError)` if parsing fails.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use xmile::Identifier;
-    ///
-    /// let id = Identifier::new_unit("$Currency").unwrap();
-    /// assert_eq!(id.normalized(), "Currency");
-    /// ```
-    pub fn new_unit(input: &str) -> Result<Self, IdentifierError> {
+    pub fn parse(input: &str, options: IdentifierOptions) -> Result<Self, IdentifierError> {
         // Return error if input is empty
         if input.is_empty() {
             return Err(IdentifierError::EmptyIdentifier);
@@ -281,7 +258,42 @@ impl Identifier {
             .flatten()
             .for_each(|w| warn!("{}", w));
 
-        parse_identifier(input, true, true)
+        parse_identifier(input, options)
+    }
+
+    /// Parses an identifier using default options.
+    ///
+    /// This is a convenience method that uses the default parsing options,
+    /// allowing for standard XMILE identifiers without special handling for
+    /// units of measure or reserved words.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The identifier string to parse
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Identifier)` if the string is a valid XMILE identifier,
+    /// or `Err(IdentifierError)` if parsing fails.
+    pub fn parse_default(input: &str) -> Result<Self, IdentifierError> {
+        Self::parse(input, IdentifierOptions::default())
+    }
+
+    /// Parses an identifier specifically for units of measure.
+    ///
+    /// This method allows for identifiers that start with a dollar sign (`$`),
+    /// which is common in XMILE for units of measure.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The identifier string to parse
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Identifier)` if the string is a valid XMILE identifier for units,
+    /// or `Err(IdentifierError)` if parsing fails.
+    pub fn parse_unit_name(input: &str) -> Result<Self, IdentifierError> {
+        Self::parse(input, IdentifierOptions::units_of_measure())
     }
 
     /// Returns the raw identifier string as originally provided.
@@ -293,7 +305,7 @@ impl Identifier {
     /// ```rust
     /// use xmile::Identifier;
     ///
-    /// let id = Identifier::new("\"Cash Balance\"").unwrap();
+    /// let id = Identifier::parse_default("\"Cash Balance\"").unwrap();
     /// assert_eq!(id.raw(), "\"Cash Balance\"");
     /// ```
     pub fn raw(&self) -> &str {
@@ -314,10 +326,10 @@ impl Identifier {
     /// ```rust
     /// use xmile::Identifier;
     ///
-    /// let id = Identifier::new("Cash_Balance").unwrap();
+    /// let id = Identifier::parse_default("Cash_Balance").unwrap();
     /// assert_eq!(id.normalized(), "Cash Balance");
     ///
-    /// let quoted = Identifier::new("\"revenue\\ngap\"").unwrap();
+    /// let quoted = Identifier::parse_default("\"revenue\\ngap\"").unwrap();
     /// assert_eq!(quoted.normalized(), "revenue gap");
     /// ```
     pub fn normalized(&self) -> &str {
@@ -335,10 +347,10 @@ impl Identifier {
     /// ```rust
     /// use xmile::{Identifier, Namespace};
     ///
-    /// let simple = Identifier::new("function").unwrap();
+    /// let simple = Identifier::parse_default("function").unwrap();
     /// assert!(simple.namespace_path().is_empty());
     ///
-    /// let qualified = Identifier::new("std.function").unwrap();
+    /// let qualified = Identifier::parse_default("std.function").unwrap();
     /// assert_eq!(qualified.namespace_path().len(), 1);
     /// assert_eq!(qualified.namespace_path()[0], Namespace::Std);
     /// ```
@@ -356,10 +368,10 @@ impl Identifier {
     /// ```rust
     /// use xmile::{Identifier, Namespace};
     ///
-    /// let qualified = Identifier::new("std.function").unwrap();
+    /// let qualified = Identifier::parse_default("std.function").unwrap();
     /// assert_eq!(qualified.top_level_namespace(), Some(&Namespace::Std));
     ///
-    /// let unqualified = Identifier::new("function").unwrap();
+    /// let unqualified = Identifier::parse_default("function").unwrap();
     /// assert_eq!(unqualified.top_level_namespace(), None);
     /// ```
     pub fn top_level_namespace(&self) -> Option<&Namespace> {
@@ -389,10 +401,10 @@ impl Identifier {
     /// ```rust
     /// use xmile::Identifier;
     ///
-    /// let unquoted = Identifier::new("function").unwrap();
+    /// let unquoted = Identifier::parse_default("function").unwrap();
     /// assert!(!unquoted.is_quoted());
     ///
-    /// let quoted = Identifier::new("\"function name\"").unwrap();
+    /// let quoted = Identifier::parse_default("\"function name\"").unwrap();
     /// assert!(quoted.is_quoted());
     /// ```
     pub fn is_quoted(&self) -> bool {
@@ -409,10 +421,10 @@ impl Identifier {
     /// ```rust
     /// use xmile::Identifier;
     ///
-    /// let simple = Identifier::new("function").unwrap();
+    /// let simple = Identifier::parse_default("function").unwrap();
     /// assert!(!simple.is_qualified());
     ///
-    /// let qualified = Identifier::new("std.function").unwrap();
+    /// let qualified = Identifier::parse_default("std.function").unwrap();
     /// assert!(qualified.is_qualified());
     /// ```
     pub fn is_qualified(&self) -> bool {
@@ -429,7 +441,7 @@ impl Identifier {
     /// ```rust
     /// use xmile::Identifier;
     ///
-    /// let qualified = Identifier::new("std.function").unwrap();
+    /// let qualified = Identifier::parse_default("std.function").unwrap();
     /// assert_eq!(qualified.unqualified(), "function");
     /// ```
     pub fn unqualified(&self) -> &str {
@@ -446,10 +458,10 @@ impl Identifier {
     /// ```rust
     /// use xmile::Identifier;
     ///
-    /// let simple = Identifier::new("function").unwrap();
+    /// let simple = Identifier::parse_default("function").unwrap();
     /// assert_eq!(simple.qualified_name(), "function");
     ///
-    /// let qualified = Identifier::new("std.function").unwrap();
+    /// let qualified = Identifier::parse_default("std.function").unwrap();
     /// assert_eq!(qualified.qualified_name(), "std.function");
     /// ```
     pub fn qualified_name(&self) -> String {
@@ -536,6 +548,30 @@ fn make_compare_key(normalized: &str) -> Result<String, IdentifierError> {
     utils::uca_compare_key(&normalized).map_err(|e| IdentifierError::ProcessingError(e))
 }
 
+/// Options for parsing identifiers in XMILE.
+/// This struct allows customization of identifier parsing behavior,
+/// particularly for units of measure.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub struct IdentifierOptions {
+    /// Whether to allow dollar signs at the start of identifiers (for units of measure)
+    pub allow_dollar: bool,
+    /// Whether to allow digits at the start of identifiers (for units of measure)
+    pub allow_digit: bool,
+    /// Allow reserved identifiers (e.g., `min` is a minute in units of measure)
+    pub allow_reserved: bool,
+}
+
+impl IdentifierOptions {
+    /// Creates a new set of options for parsing units of measure.
+    pub fn units_of_measure() -> Self {
+        Self {
+            allow_dollar: true,
+            allow_digit: true,
+            allow_reserved: true,
+        }
+    }
+}
+
 /// Parses an identifier string according to XMILE rules.
 ///
 /// Handles both quoted and unquoted forms, namespace qualification,
@@ -544,12 +580,10 @@ fn make_compare_key(normalized: &str) -> Result<String, IdentifierError> {
 /// # Arguments
 ///
 /// * `input` - The identifier string to parse
-/// * `allow_dollar` - Whether to allow dollar signs at the start (for units of measure)
-/// * `allow_digit` - Whether to allow digits at the start (for units of measure)
+/// * `options` - Parsing options to customize behavior
 fn parse_identifier(
     input: &str,
-    allow_dollar: bool,
-    allow_digit: bool,
+    options: IdentifierOptions,
 ) -> Result<Identifier, IdentifierError> {
     // Trim whitespace from both ends
     let trimmed = input.trim();
@@ -564,7 +598,7 @@ fn parse_identifier(
     // functions, each library, whether vendor-specific or user-defined, SHOULD
     // exist within its own namespace.
     if let Some(dot_pos) = trimmed.rfind('.') {
-        return parse_qualified_identifier(trimmed, dot_pos, allow_dollar, allow_digit);
+        return parse_qualified_identifier(trimmed, dot_pos, options);
     }
 
     // Handle Identifier Form, Quoted (3.2.2.1)
@@ -575,15 +609,14 @@ fn parse_identifier(
     }
 
     // Handle Identifier Form, Unquoted (3.2.2.1)
-    parse_unquoted_identifier(trimmed, allow_dollar, allow_digit)
+    parse_unquoted_identifier(trimmed, options)
 }
 
 /// Parses a qualified identifier (namespace.identifier) according to XMILE rules.
 fn parse_qualified_identifier(
     input: &str,
     dot_pos: usize,
-    allow_dollar: bool,
-    allow_digit: bool,
+    options: IdentifierOptions,
 ) -> Result<Identifier, IdentifierError> {
     let namespace_part = &input[..dot_pos];
     let identifier_part = &input[dot_pos + 1..];
@@ -593,7 +626,7 @@ fn parse_qualified_identifier(
     }
 
     // Parse the identifier part recursively
-    let identifier = parse_identifier(identifier_part, allow_dollar, allow_digit)?;
+    let identifier = parse_identifier(identifier_part, options)?;
     let namespace_path = Namespace::from_str(namespace_part);
 
     Ok(Identifier {
@@ -633,8 +666,7 @@ fn parse_quoted_identifier(input: &str) -> Result<Identifier, IdentifierError> {
 /// Parses an unquoted identifier according to XMILE rules.
 fn parse_unquoted_identifier(
     input: &str,
-    allow_dollar: bool,
-    allow_digit: bool,
+    options: IdentifierOptions,
 ) -> Result<Identifier, IdentifierError> {
     // Identifiers are formed by a sequence of one or more characters...
     if input.is_empty() {
@@ -647,11 +679,11 @@ fn parse_unquoted_identifier(
     // Identifiers SHALL NOT begin with a digit or a dollar sign (with
     // exceptions as noted for units of measure), and SHALL NOT begin or end
     // with an underscore.
-    if (!allow_digit && first_char.is_ascii_digit()) || first_char == '_' {
+    if (!options.allow_digit && first_char.is_ascii_digit()) || first_char == '_' {
         return Err(IdentifierError::InvalidFirstCharacter(first_char));
     }
 
-    if !allow_dollar && first_char == '$' {
+    if !options.allow_dollar && first_char == '$' {
         return Err(IdentifierError::InvalidFirstCharacter(first_char));
     }
 
@@ -673,7 +705,7 @@ fn parse_unquoted_identifier(
     // user-defined namespaces, macros, or functions. Any conflict with these
     // names that is found when reading user- or vendor-supplied definitions
     // SHOULD be flagged as an error to the end user.
-    if Identifier::is_reserved(input) {
+    if !options.allow_reserved && Identifier::is_reserved(input) {
         return Err(IdentifierError::ReservedIdentifier(input.to_string()));
     }
 
@@ -715,19 +747,7 @@ impl FromStr for Identifier {
     /// - Malformed qualified names
     /// - Invalid escape sequences
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        // Return error if input is empty
-        if input.is_empty() {
-            return Err(IdentifierError::EmptyIdentifier);
-        }
-
-        // Validate and warn about Unicode issues
-        input
-            .chars()
-            .map(|w| utils::unicode_char_warnings(w).warnings())
-            .flatten()
-            .for_each(|w| warn!("{}", w));
-
-        parse_identifier(input, false, false)
+        Self::parse_default(input)
     }
 }
 
@@ -802,7 +822,7 @@ impl PartialEq<&str> for Identifier {
     /// ```rust
     /// use xmile::Identifier;
     ///
-    /// let id = Identifier::new("Cash_Balance").unwrap();
+    /// let id = Identifier::parse_default("Cash_Balance").unwrap();
     /// assert_eq!(id, "cash balance"); // true due to equivalence rules
     /// ```
     fn eq(&self, other: &&str) -> bool {
