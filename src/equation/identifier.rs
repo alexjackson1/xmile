@@ -40,7 +40,7 @@
 //! ## Examples
 //!
 //! ```rust
-//! use xmile::core::identifiers::Identifier;
+//! use xmile::Identifier;
 //!
 //! // Basic identifier
 //! let id1 = Identifier::new("Cash_Balance").unwrap();
@@ -73,7 +73,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
-use super::{namespace::Namespace, utils};
+use super::utils;
+use crate::Namespace;
 
 /// Errors that can occur during identifier parsing and processing.
 #[derive(Debug, Error)]
@@ -236,7 +237,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let id = Identifier::new("Cash_Balance").unwrap();
     /// assert_eq!(id.normalized(), "Cash Balance");
@@ -252,7 +253,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let id = Identifier::new("\"Cash Balance\"").unwrap();
     /// assert_eq!(id.raw(), "\"Cash Balance\"");
@@ -273,7 +274,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let id = Identifier::new("Cash_Balance").unwrap();
     /// assert_eq!(id.normalized(), "Cash Balance");
@@ -294,7 +295,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::{identifiers::Identifier, namespace::Namespace};
+    /// use xmile::{Identifier, Namespace};
     ///
     /// let simple = Identifier::new("function").unwrap();
     /// assert!(simple.namespace_path().is_empty());
@@ -315,7 +316,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::{identifiers::Identifier, namespace::Namespace};
+    /// use xmile::{Identifier, Namespace};
     ///
     /// let qualified = Identifier::new("std.function").unwrap();
     /// assert_eq!(qualified.top_level_namespace(), Some(&Namespace::Std));
@@ -348,7 +349,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let unquoted = Identifier::new("function").unwrap();
     /// assert!(!unquoted.is_quoted());
@@ -368,7 +369,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let simple = Identifier::new("function").unwrap();
     /// assert!(!simple.is_qualified());
@@ -388,7 +389,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let qualified = Identifier::new("std.function").unwrap();
     /// assert_eq!(qualified.unqualified(), "function");
@@ -405,7 +406,7 @@ impl Identifier {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let simple = Identifier::new("function").unwrap();
     /// assert_eq!(simple.qualified_name(), "function");
@@ -754,7 +755,7 @@ impl PartialEq<&str> for Identifier {
     ///
     /// This allows direct comparison with string literals:
     /// ```rust
-    /// use xmile::core::identifiers::Identifier;
+    /// use xmile::Identifier;
     ///
     /// let id = Identifier::new("Cash_Balance").unwrap();
     /// assert_eq!(id, "cash balance"); // true due to equivalence rules

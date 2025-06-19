@@ -1,4 +1,136 @@
-mod operators {
+use function::FunctionTarget;
+use operator::Operator;
+
+use super::{Identifier, NumericConstant};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expression {
+    Constant(NumericConstant),
+    // Operators
+    Subscript(Identifier, Vec<Expression>),
+    Parentheses(Box<Expression>),
+    Exponentiation(Box<Expression>, Box<Expression>),
+    UnaryPlus(Box<Expression>),
+    UnaryMinus(Box<Expression>),
+    Not(Box<Expression>),
+    Multiply(Box<Expression>, Box<Expression>),
+    Divide(Box<Expression>, Box<Expression>),
+    Modulo(Box<Expression>, Box<Expression>),
+    Add(Box<Expression>, Box<Expression>),
+    Subtract(Box<Expression>, Box<Expression>),
+    LessThan(Box<Expression>, Box<Expression>),
+    LessThanOrEq(Box<Expression>, Box<Expression>),
+    GreaterThan(Box<Expression>, Box<Expression>),
+    GreaterThanOrEq(Box<Expression>, Box<Expression>),
+    Equal(Box<Expression>, Box<Expression>),
+    NotEqual(Box<Expression>, Box<Expression>),
+    And(Box<Expression>, Box<Expression>),
+    Or(Box<Expression>, Box<Expression>),
+    // Function Calls
+    FunctionCall {
+        target: FunctionTarget,
+        parameters: Vec<Expression>,
+    },
+    // Control Structures
+    IfElse {
+        condition: Box<Expression>,
+        then_branch: Box<Expression>,
+        else_branch: Box<Expression>,
+    },
+    // Comments
+    InlineComment(String),
+}
+
+impl Expression {
+    pub fn top_operator(&self) -> Option<operator::Operator> {
+        match self {
+            Expression::Subscript(_, _) => Some(Operator::Subscript),
+            Expression::Parentheses(_) => Some(Operator::Paren),
+            Expression::Exponentiation(_, _) => Some(Operator::Exponentiation),
+            Expression::UnaryPlus(_) => Some(Operator::UnaryPlus),
+            Expression::UnaryMinus(_) => Some(Operator::UnaryMinus),
+            Expression::Not(_) => Some(Operator::Not),
+            Expression::Multiply(_, _) => Some(Operator::Multiply),
+            Expression::Divide(_, _) => Some(Operator::Divide),
+            Expression::Modulo(_, _) => Some(Operator::Modulo),
+            Expression::Add(_, _) => Some(Operator::Add),
+            Expression::Subtract(_, _) => Some(Operator::Subtract),
+            Expression::LessThan(_, _) => Some(Operator::LessThan),
+            Expression::LessThanOrEq(_, _) => Some(Operator::LessThanOrEq),
+            Expression::GreaterThan(_, _) => Some(Operator::GreaterThan),
+            Expression::GreaterThanOrEq(_, _) => Some(Operator::GreaterThanOrEq),
+            Expression::Equal(_, _) => Some(Operator::Equal),
+            Expression::NotEqual(_, _) => Some(Operator::NotEqual),
+            Expression::And(_, _) => Some(Operator::And),
+            Expression::Or(_, _) => Some(Operator::Or),
+            Expression::Constant(_) => None,
+            Expression::FunctionCall { .. } => None,
+            Expression::IfElse { .. } => None,
+            Expression::InlineComment(_) => None,
+        }
+    }
+
+    pub fn operators(&self) -> Vec<Operator> {
+        let mut acc = Vec::new();
+        self.operators_recursive(&mut acc);
+        acc
+    }
+
+    fn operators_recursive(&self, acc: &mut Vec<Operator>) {
+        if let Some(op) = self.top_operator() {
+            acc.push(op);
+        }
+        match self {
+            Expression::Subscript(_, params) => {
+                for param in params {
+                    param.operators_recursive(acc);
+                }
+            }
+            Expression::Parentheses(expr) => expr.operators_recursive(acc),
+            Expression::Exponentiation(base, exponent) => {
+                base.operators_recursive(acc);
+                exponent.operators_recursive(acc);
+            }
+            Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) | Expression::Not(expr) => {
+                expr.operators_recursive(acc)
+            }
+            Expression::Multiply(lhs, rhs)
+            | Expression::Divide(lhs, rhs)
+            | Expression::Modulo(lhs, rhs)
+            | Expression::Add(lhs, rhs)
+            | Expression::Subtract(lhs, rhs)
+            | Expression::LessThan(lhs, rhs)
+            | Expression::LessThanOrEq(lhs, rhs)
+            | Expression::GreaterThan(lhs, rhs)
+            | Expression::GreaterThanOrEq(lhs, rhs)
+            | Expression::Equal(lhs, rhs)
+            | Expression::NotEqual(lhs, rhs)
+            | Expression::And(lhs, rhs)
+            | Expression::Or(lhs, rhs) => {
+                lhs.operators_recursive(acc);
+                rhs.operators_recursive(acc);
+            }
+            Expression::FunctionCall { parameters, .. } => {
+                for param in parameters {
+                    param.operators_recursive(acc);
+                }
+            }
+            Expression::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                condition.operators_recursive(acc);
+                then_branch.operators_recursive(acc);
+                else_branch.operators_recursive(acc);
+            }
+            Expression::InlineComment(_) => {}
+            Expression::Constant(_) => {}
+        }
+    }
+}
+
+pub mod operator {
     //! ### XMILE Operators (Section 3.3.1)
     //! The following table lists the supported operators in precedence order.
     //! All but exponentiation and the unary operators have left-to-right
@@ -123,7 +255,7 @@ mod operators {
     }
 }
 
-mod function_calls {
+pub mod function {
     //! ### XMILE Function Calls (Section 3.3.2)
     //!
     //! Parentheses are also used to provide parameters to function calls,
@@ -149,138 +281,5 @@ mod function_calls {
         Model(Identifier),
         /// Array name with flat index, e.g., `A(10)` for a three-dimensional array `A` with bounds `[2, 3, 4]`
         Array(Identifier),
-    }
-}
-
-use function_calls::FunctionTarget;
-
-use operators::Operator;
-
-use crate::{Identifier, core::NumericConstant};
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Expression {
-    Constant(NumericConstant),
-    // Operators
-    Subscript(Identifier, Vec<Expression>),
-    Parentheses(Box<Expression>),
-    Exponentiation(Box<Expression>, Box<Expression>),
-    UnaryPlus(Box<Expression>),
-    UnaryMinus(Box<Expression>),
-    Not(Box<Expression>),
-    Multiply(Box<Expression>, Box<Expression>),
-    Divide(Box<Expression>, Box<Expression>),
-    Modulo(Box<Expression>, Box<Expression>),
-    Add(Box<Expression>, Box<Expression>),
-    Subtract(Box<Expression>, Box<Expression>),
-    LessThan(Box<Expression>, Box<Expression>),
-    LessThanOrEq(Box<Expression>, Box<Expression>),
-    GreaterThan(Box<Expression>, Box<Expression>),
-    GreaterThanOrEq(Box<Expression>, Box<Expression>),
-    Equal(Box<Expression>, Box<Expression>),
-    NotEqual(Box<Expression>, Box<Expression>),
-    And(Box<Expression>, Box<Expression>),
-    Or(Box<Expression>, Box<Expression>),
-    // Function Calls
-    FunctionCall {
-        target: FunctionTarget,
-        parameters: Vec<Expression>,
-    },
-    // Control Structures
-    IfElse {
-        condition: Box<Expression>,
-        then_branch: Box<Expression>,
-        else_branch: Box<Expression>,
-    },
-    // Comments
-    InlineComment(String),
-}
-
-impl Expression {
-    pub fn top_operator(&self) -> Option<operators::Operator> {
-        match self {
-            Expression::Subscript(_, _) => Some(Operator::Subscript),
-            Expression::Parentheses(_) => Some(Operator::Paren),
-            Expression::Exponentiation(_, _) => Some(Operator::Exponentiation),
-            Expression::UnaryPlus(_) => Some(Operator::UnaryPlus),
-            Expression::UnaryMinus(_) => Some(Operator::UnaryMinus),
-            Expression::Not(_) => Some(Operator::Not),
-            Expression::Multiply(_, _) => Some(Operator::Multiply),
-            Expression::Divide(_, _) => Some(Operator::Divide),
-            Expression::Modulo(_, _) => Some(Operator::Modulo),
-            Expression::Add(_, _) => Some(Operator::Add),
-            Expression::Subtract(_, _) => Some(Operator::Subtract),
-            Expression::LessThan(_, _) => Some(Operator::LessThan),
-            Expression::LessThanOrEq(_, _) => Some(Operator::LessThanOrEq),
-            Expression::GreaterThan(_, _) => Some(Operator::GreaterThan),
-            Expression::GreaterThanOrEq(_, _) => Some(Operator::GreaterThanOrEq),
-            Expression::Equal(_, _) => Some(Operator::Equal),
-            Expression::NotEqual(_, _) => Some(Operator::NotEqual),
-            Expression::And(_, _) => Some(Operator::And),
-            Expression::Or(_, _) => Some(Operator::Or),
-            Expression::Constant(_) => None,
-            Expression::FunctionCall { .. } => None,
-            Expression::IfElse { .. } => None,
-            Expression::InlineComment(_) => None,
-        }
-    }
-
-    pub fn operators(&self) -> Vec<Operator> {
-        let mut acc = Vec::new();
-        self.operators_recursive(&mut acc);
-        acc
-    }
-
-    fn operators_recursive(&self, acc: &mut Vec<Operator>) {
-        if let Some(op) = self.top_operator() {
-            acc.push(op);
-        }
-        match self {
-            Expression::Subscript(_, params) => {
-                for param in params {
-                    param.operators_recursive(acc);
-                }
-            }
-            Expression::Parentheses(expr) => expr.operators_recursive(acc),
-            Expression::Exponentiation(base, exponent) => {
-                base.operators_recursive(acc);
-                exponent.operators_recursive(acc);
-            }
-            Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) | Expression::Not(expr) => {
-                expr.operators_recursive(acc)
-            }
-            Expression::Multiply(lhs, rhs)
-            | Expression::Divide(lhs, rhs)
-            | Expression::Modulo(lhs, rhs)
-            | Expression::Add(lhs, rhs)
-            | Expression::Subtract(lhs, rhs)
-            | Expression::LessThan(lhs, rhs)
-            | Expression::LessThanOrEq(lhs, rhs)
-            | Expression::GreaterThan(lhs, rhs)
-            | Expression::GreaterThanOrEq(lhs, rhs)
-            | Expression::Equal(lhs, rhs)
-            | Expression::NotEqual(lhs, rhs)
-            | Expression::And(lhs, rhs)
-            | Expression::Or(lhs, rhs) => {
-                lhs.operators_recursive(acc);
-                rhs.operators_recursive(acc);
-            }
-            Expression::FunctionCall { parameters, .. } => {
-                for param in parameters {
-                    param.operators_recursive(acc);
-                }
-            }
-            Expression::IfElse {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                condition.operators_recursive(acc);
-                then_branch.operators_recursive(acc);
-                else_branch.operators_recursive(acc);
-            }
-            Expression::InlineComment(_) => {}
-            Expression::Constant(_) => {}
-        }
     }
 }

@@ -26,7 +26,7 @@
 //! ## Examples
 //!
 //! ```rust
-//! use xmile::core::namespace::Namespace;
+//! use xmile::Namespace;
 //!
 //! // Parse a single namespace
 //! let ns = Namespace::from_part("std");
@@ -165,7 +165,7 @@ impl Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// let path = Namespace::from_str("user.custom.utils");
     /// assert_eq!(path.len(), 3);
@@ -197,7 +197,7 @@ impl Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// assert_eq!(Namespace::from_part("std"), Namespace::Std);
     /// assert_eq!(Namespace::from_part("STD"), Namespace::Std); // Case-insensitive
@@ -228,7 +228,7 @@ impl Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// assert_eq!(Namespace::Std.as_str(), "std");
     /// assert_eq!(Namespace::Vensim.as_str(), "vensim");
@@ -259,7 +259,7 @@ impl Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// assert!(Namespace::Std.is_predefined());
     /// assert!(Namespace::Vensim.is_predefined());
@@ -277,7 +277,7 @@ impl Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// assert!(!Namespace::Std.is_vendor());
     /// assert!(!Namespace::User.is_vendor());
@@ -316,7 +316,7 @@ impl Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// let path = vec![Namespace::User, Namespace::Other("custom".to_string())];
     /// let prefix = Namespace::as_prefix(&path);
@@ -338,7 +338,7 @@ impl fmt::Display for Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// let ns = Namespace::Std;
     /// println!("Namespace: {}", ns); // Prints "Namespace: std"
@@ -359,7 +359,7 @@ impl ops::Deref for Namespace {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::namespace::Namespace;
+    /// use xmile::Namespace;
     ///
     /// let ns = Namespace::Std;
     /// assert_eq!(ns.len(), 3); // Calls str::len() on "std"

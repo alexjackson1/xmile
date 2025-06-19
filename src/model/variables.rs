@@ -1,18 +1,11 @@
-use crate::Identifier;
-
-use super::{Expression, Unit};
+use crate::{Expression, Identifier, MeasureUnit, equation::units::Measure};
 
 pub trait Documentation {
     /// Returns the documentation if available.
     fn documentation(&self) -> Option<&String>;
 }
 
-pub trait UnitOfMeasure {
-    /// Returns the unit of measure.
-    fn unit(&self) -> Option<&Unit>;
-}
-
-pub trait Variable: Documentation + UnitOfMeasure {
+pub trait Variable: Documentation {
     /// Returns the name of the variable.
     fn name(&self) -> &Identifier;
 }
@@ -24,18 +17,12 @@ pub struct Stock {
     pub inflows: Vec<Identifier>,
     pub outflows: Vec<Identifier>,
     pub initial_equation: Expression,
-    pub units: Unit,
+    pub units: Option<MeasureUnit>,
 }
 
 impl Documentation for Stock {
     fn documentation(&self) -> Option<&String> {
         self.documentation.as_ref()
-    }
-}
-
-impl UnitOfMeasure for Stock {
-    fn unit(&self) -> Option<&Unit> {
-        Some(&self.units)
     }
 }
 
@@ -45,12 +32,18 @@ impl Variable for Stock {
     }
 }
 
+impl Measure for Stock {
+    fn units(&self) -> Option<&MeasureUnit> {
+        self.units.as_ref()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Flow {
     pub name: Identifier,
     pub documentation: Option<String>,
     pub equation: Expression,
-    pub units: Unit,
+    pub units: Option<MeasureUnit>,
 }
 
 impl Documentation for Flow {
@@ -59,9 +52,9 @@ impl Documentation for Flow {
     }
 }
 
-impl UnitOfMeasure for Flow {
-    fn unit(&self) -> Option<&Unit> {
-        Some(&self.units)
+impl Measure for Flow {
+    fn units(&self) -> Option<&MeasureUnit> {
+        self.units.as_ref()
     }
 }
 
@@ -76,7 +69,7 @@ pub struct Auxiliary {
     pub name: Identifier,
     pub documentation: Option<String>,
     pub equation: Expression,
-    pub units: Unit,
+    pub units: Option<MeasureUnit>,
 }
 
 impl Documentation for Auxiliary {
@@ -85,9 +78,9 @@ impl Documentation for Auxiliary {
     }
 }
 
-impl UnitOfMeasure for Auxiliary {
-    fn unit(&self) -> Option<&Unit> {
-        Some(&self.units)
+impl Measure for Auxiliary {
+    fn units(&self) -> Option<&MeasureUnit> {
+        self.units.as_ref()
     }
 }
 

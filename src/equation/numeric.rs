@@ -35,7 +35,7 @@
 //! ## Examples
 //!
 //! ```rust
-//! use xmile::core::numeric_constants::NumericConstant;
+//! use xmile::NumericConstant;
 //! use std::str::FromStr;
 //!
 //! // Basic integers
@@ -82,7 +82,7 @@
 //! The parser provides detailed error information for various failure modes:
 //!
 //! ```rust
-//! use xmile::core::numeric_constants::{NumericConstant, NumericConstantError};
+//! use xmile::equation::{NumericConstant, NumericConstantError};
 //! use std::str::FromStr;
 //!
 //! // Empty input
@@ -224,7 +224,7 @@ pub enum NumericConstantError {
 /// ## Usage
 ///
 /// ```rust
-/// use xmile::core::numeric_constants::NumericConstant;
+/// use xmile::NumericConstant;
 /// use std::str::FromStr;
 ///
 /// // Parse from string
@@ -422,7 +422,7 @@ impl FromStr for NumericConstant {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::numeric_constants::NumericConstant;
+    /// use xmile::NumericConstant;
     /// use std::str::FromStr;
     ///
     /// // Valid examples
@@ -483,7 +483,7 @@ impl From<f64> for NumericConstant {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::numeric_constants::NumericConstant;
+    /// use xmile::NumericConstant;
     ///
     /// let constant = NumericConstant::from(3.14159);
     /// let value: f64 = constant.into();
@@ -507,7 +507,7 @@ impl From<NumericConstant> for f64 {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::numeric_constants::NumericConstant;
+    /// use xmile::NumericConstant;
     /// use std::str::FromStr;
     ///
     /// let constant = NumericConstant::from_str("42.5").unwrap();
@@ -528,7 +528,7 @@ impl fmt::Display for NumericConstant {
     /// # Examples
     ///
     /// ```rust
-    /// use xmile::core::numeric_constants::NumericConstant;
+    /// use xmile::NumericConstant;
     ///
     /// let constant = NumericConstant::from(123.456);
     /// assert_eq!(format!("{}", constant), "123.456");

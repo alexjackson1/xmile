@@ -25,7 +25,7 @@
 //! ## Examples
 //!
 //! ```rust
-//! use xmile::core::utils;
+//! use xmile::equation::utils;
 //!
 //! // Full-width character conversion
 //! assert_eq!(utils::full_to_half_width('Ａ'), 'A');
@@ -80,7 +80,7 @@ pub enum ProcessingError {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// assert_eq!(utils::full_to_half_width('Ａ'), 'A'); // Full-width A to normal A
 /// assert_eq!(utils::full_to_half_width('１'), '1'); // Full-width 1 to normal 1
@@ -120,7 +120,7 @@ pub fn full_to_half_width(ch: char) -> char {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// // Compatibility ligature fi (U+FB01) becomes "fi"
 /// let normalized = utils::nfkc_normalize("ﬁle").unwrap();
@@ -153,7 +153,7 @@ pub fn nfkc_normalize(input: &str) -> Result<String, ProcessingError> {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// // Basic ASCII case folding
 /// assert_eq!(utils::uca_case_fold("HELLO").unwrap(), "hello");
@@ -195,7 +195,7 @@ pub fn uca_case_fold(input: &str) -> Result<String, ProcessingError> {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// let key1 = utils::uca_compare_key("Cash_Balance").unwrap();
 /// let key2 = utils::uca_compare_key("CASH BALANCE").unwrap();
@@ -244,7 +244,7 @@ pub fn uca_compare_key(input: &str) -> Result<String, ProcessingError> {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// use std::cmp::Ordering;
 ///
@@ -285,7 +285,7 @@ pub fn uca_compare(left: &str, right: &str) -> Result<std::cmp::Ordering, Proces
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// assert!(utils::uca_equal("Hello", "HELLO").unwrap());
 /// assert!(utils::uca_equal("STRAßE", "STRASSE").unwrap());
@@ -318,7 +318,7 @@ pub fn uca_equal(left: &str, right: &str) -> Result<bool, ProcessingError> {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// // Basic whitespace normalization
 /// let (result, warnings) = utils::xmile_normalize("test___variable").into();
@@ -406,7 +406,7 @@ pub fn xmile_normalize(input: &str) -> WithWarnings<String, String> {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// assert_eq!(utils::parse_xmile_escape("hello world").unwrap(), "hello world");
 /// assert_eq!(utils::parse_xmile_escape("revenue\\ngap").unwrap(), "revenue\ngap");
@@ -468,7 +468,7 @@ pub fn parse_xmile_escape(input: &str) -> Result<String, ProcessingError> {
 /// # Examples
 ///
 /// ```rust
-/// use xmile::core::utils;
+/// use xmile::equation::utils;
 ///
 /// // Full-width character warning
 /// let (_, warnings) = utils::unicode_char_warnings('Ａ').into();
