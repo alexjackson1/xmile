@@ -1,4 +1,4 @@
-use crate::{Expression, Identifier, MeasureUnit, equation::units::Measure};
+use crate::{Expression, Identifier, Measure, UnitOfMeasure};
 
 pub trait Documentation {
     /// Returns the documentation if available.
@@ -17,7 +17,7 @@ pub struct Stock {
     pub inflows: Vec<Identifier>,
     pub outflows: Vec<Identifier>,
     pub initial_equation: Expression,
-    pub units: Option<MeasureUnit>,
+    pub units: Option<UnitOfMeasure>,
 }
 
 impl Documentation for Stock {
@@ -33,7 +33,7 @@ impl Variable for Stock {
 }
 
 impl Measure for Stock {
-    fn units(&self) -> Option<&MeasureUnit> {
+    fn units(&self) -> Option<&UnitOfMeasure> {
         self.units.as_ref()
     }
 }
@@ -43,7 +43,7 @@ pub struct Flow {
     pub name: Identifier,
     pub documentation: Option<String>,
     pub equation: Expression,
-    pub units: Option<MeasureUnit>,
+    pub units: Option<UnitOfMeasure>,
 }
 
 impl Documentation for Flow {
@@ -53,7 +53,7 @@ impl Documentation for Flow {
 }
 
 impl Measure for Flow {
-    fn units(&self) -> Option<&MeasureUnit> {
+    fn units(&self) -> Option<&UnitOfMeasure> {
         self.units.as_ref()
     }
 }
@@ -69,7 +69,7 @@ pub struct Auxiliary {
     pub name: Identifier,
     pub documentation: Option<String>,
     pub equation: Expression,
-    pub units: Option<MeasureUnit>,
+    pub units: Option<UnitOfMeasure>,
 }
 
 impl Documentation for Auxiliary {
@@ -79,7 +79,7 @@ impl Documentation for Auxiliary {
 }
 
 impl Measure for Auxiliary {
-    fn units(&self) -> Option<&MeasureUnit> {
+    fn units(&self) -> Option<&UnitOfMeasure> {
         self.units.as_ref()
     }
 }

@@ -246,6 +246,44 @@ impl Identifier {
         Self::from_str(input)
     }
 
+    /// Creates a new identifier for units of measure.
+    ///
+    /// This is similar to `new()` but allows for identifiers that start with a dollar sign (`$`),
+    /// which is common for units of measure in XMILE.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The identifier string to parse
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Identifier)` if the string is a valid XMILE identifier for units,
+    /// or `Err(IdentifierError)` if parsing fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use xmile::Identifier;
+    ///
+    /// let id = Identifier::new_unit("$Currency").unwrap();
+    /// assert_eq!(id.normalized(), "Currency");
+    /// ```
+    pub fn new_unit(input: &str) -> Result<Self, IdentifierError> {
+        // Return error if input is empty
+        if input.is_empty() {
+            return Err(IdentifierError::EmptyIdentifier);
+        }
+
+        // Validate and warn about Unicode issues
+        input
+            .chars()
+            .map(|w| utils::unicode_char_warnings(w).warnings())
+            .flatten()
+            .for_each(|w| warn!("{}", w));
+
+        parse_identifier(input, true, true)
+    }
+
     /// Returns the raw identifier string as originally provided.
     ///
     /// This preserves the exact input including quotes, case, and whitespace.
@@ -507,7 +545,12 @@ fn make_compare_key(normalized: &str) -> Result<String, IdentifierError> {
 ///
 /// * `input` - The identifier string to parse
 /// * `allow_dollar` - Whether to allow dollar signs at the start (for units of measure)
-fn parse_identifier(input: &str, allow_dollar: bool) -> Result<Identifier, IdentifierError> {
+/// * `allow_digit` - Whether to allow digits at the start (for units of measure)
+fn parse_identifier(
+    input: &str,
+    allow_dollar: bool,
+    allow_digit: bool,
+) -> Result<Identifier, IdentifierError> {
     // Trim whitespace from both ends
     let trimmed = input.trim();
 
@@ -521,7 +564,7 @@ fn parse_identifier(input: &str, allow_dollar: bool) -> Result<Identifier, Ident
     // functions, each library, whether vendor-specific or user-defined, SHOULD
     // exist within its own namespace.
     if let Some(dot_pos) = trimmed.rfind('.') {
-        return parse_qualified_identifier(trimmed, dot_pos, allow_dollar);
+        return parse_qualified_identifier(trimmed, dot_pos, allow_dollar, allow_digit);
     }
 
     // Handle Identifier Form, Quoted (3.2.2.1)
@@ -532,7 +575,7 @@ fn parse_identifier(input: &str, allow_dollar: bool) -> Result<Identifier, Ident
     }
 
     // Handle Identifier Form, Unquoted (3.2.2.1)
-    parse_unquoted_identifier(trimmed, allow_dollar)
+    parse_unquoted_identifier(trimmed, allow_dollar, allow_digit)
 }
 
 /// Parses a qualified identifier (namespace.identifier) according to XMILE rules.
@@ -540,6 +583,7 @@ fn parse_qualified_identifier(
     input: &str,
     dot_pos: usize,
     allow_dollar: bool,
+    allow_digit: bool,
 ) -> Result<Identifier, IdentifierError> {
     let namespace_part = &input[..dot_pos];
     let identifier_part = &input[dot_pos + 1..];
@@ -549,7 +593,7 @@ fn parse_qualified_identifier(
     }
 
     // Parse the identifier part recursively
-    let identifier = parse_identifier(identifier_part, allow_dollar)?;
+    let identifier = parse_identifier(identifier_part, allow_dollar, allow_digit)?;
     let namespace_path = Namespace::from_str(namespace_part);
 
     Ok(Identifier {
@@ -590,6 +634,7 @@ fn parse_quoted_identifier(input: &str) -> Result<Identifier, IdentifierError> {
 fn parse_unquoted_identifier(
     input: &str,
     allow_dollar: bool,
+    allow_digit: bool,
 ) -> Result<Identifier, IdentifierError> {
     // Identifiers are formed by a sequence of one or more characters...
     if input.is_empty() {
@@ -602,7 +647,7 @@ fn parse_unquoted_identifier(
     // Identifiers SHALL NOT begin with a digit or a dollar sign (with
     // exceptions as noted for units of measure), and SHALL NOT begin or end
     // with an underscore.
-    if first_char.is_ascii_digit() || first_char == '_' {
+    if (!allow_digit && first_char.is_ascii_digit()) || first_char == '_' {
         return Err(IdentifierError::InvalidFirstCharacter(first_char));
     }
 
@@ -682,7 +727,7 @@ impl FromStr for Identifier {
             .flatten()
             .for_each(|w| warn!("{}", w));
 
-        parse_identifier(input, false)
+        parse_identifier(input, false, false)
     }
 }
 

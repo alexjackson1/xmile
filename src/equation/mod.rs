@@ -7,4 +7,4 @@ pub mod utils;
 pub use expression::{Expression, operator::Operator};
 pub use identifier::{Identifier, IdentifierError};
 pub use numeric::{NumericConstant, NumericConstantError};
-pub use units::MeasureUnit;
+pub use units::{Measure, UnitEquation, UnitOfMeasure};
