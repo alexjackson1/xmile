@@ -41,10 +41,8 @@ mod operators {
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub enum Operator {
-        LeftSub,
-        RightSub,
-        LeftParen,
-        RightParen,
+        Subscript,
+        Paren,
         Exponentiation,
         UnaryPlus,
         UnaryMinus,
@@ -67,8 +65,8 @@ mod operators {
     impl Operator {
         pub fn precedence(&self) -> u8 {
             match self {
-                Operator::LeftSub | Operator::RightSub => 0,
-                Operator::LeftParen | Operator::RightParen => 1,
+                Operator::Subscript => 0,
+                Operator::Paren => 1,
                 Operator::Exponentiation => 2,
                 Operator::UnaryPlus | Operator::UnaryMinus | Operator::Not => 3,
                 Operator::Multiply | Operator::Divide | Operator::Modulo => 4,
@@ -88,10 +86,8 @@ mod operators {
     impl fmt::Display for Operator {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let symbol = match self {
-                Operator::LeftSub => "[",
-                Operator::RightSub => "]",
-                Operator::LeftParen => "(",
-                Operator::RightParen => ")",
+                Operator::Subscript => "[]",
+                Operator::Paren => "()",
                 Operator::Exponentiation => "^",
                 Operator::UnaryPlus => "+",
                 Operator::UnaryMinus => "-",
@@ -156,9 +152,8 @@ mod function_calls {
     }
 }
 
-use std::collections::HashSet;
-
 use function_calls::FunctionTarget;
+
 use operators::Operator;
 
 use crate::{Identifier, core::NumericConstant};
@@ -199,4 +194,93 @@ pub enum Expression {
     },
     // Comments
     InlineComment(String),
+}
+
+impl Expression {
+    pub fn top_operator(&self) -> Option<operators::Operator> {
+        match self {
+            Expression::Subscript(_, _) => Some(Operator::Subscript),
+            Expression::Parentheses(_) => Some(Operator::Paren),
+            Expression::Exponentiation(_, _) => Some(Operator::Exponentiation),
+            Expression::UnaryPlus(_) => Some(Operator::UnaryPlus),
+            Expression::UnaryMinus(_) => Some(Operator::UnaryMinus),
+            Expression::Not(_) => Some(Operator::Not),
+            Expression::Multiply(_, _) => Some(Operator::Multiply),
+            Expression::Divide(_, _) => Some(Operator::Divide),
+            Expression::Modulo(_, _) => Some(Operator::Modulo),
+            Expression::Add(_, _) => Some(Operator::Add),
+            Expression::Subtract(_, _) => Some(Operator::Subtract),
+            Expression::LessThan(_, _) => Some(Operator::LessThan),
+            Expression::LessThanOrEq(_, _) => Some(Operator::LessThanOrEq),
+            Expression::GreaterThan(_, _) => Some(Operator::GreaterThan),
+            Expression::GreaterThanOrEq(_, _) => Some(Operator::GreaterThanOrEq),
+            Expression::Equal(_, _) => Some(Operator::Equal),
+            Expression::NotEqual(_, _) => Some(Operator::NotEqual),
+            Expression::And(_, _) => Some(Operator::And),
+            Expression::Or(_, _) => Some(Operator::Or),
+            Expression::Constant(_) => None,
+            Expression::FunctionCall { .. } => None,
+            Expression::IfElse { .. } => None,
+            Expression::InlineComment(_) => None,
+        }
+    }
+
+    pub fn operators(&self) -> Vec<Operator> {
+        let mut acc = Vec::new();
+        self.operators_recursive(&mut acc);
+        acc
+    }
+
+    fn operators_recursive(&self, acc: &mut Vec<Operator>) {
+        if let Some(op) = self.top_operator() {
+            acc.push(op);
+        }
+        match self {
+            Expression::Subscript(_, params) => {
+                for param in params {
+                    param.operators_recursive(acc);
+                }
+            }
+            Expression::Parentheses(expr) => expr.operators_recursive(acc),
+            Expression::Exponentiation(base, exponent) => {
+                base.operators_recursive(acc);
+                exponent.operators_recursive(acc);
+            }
+            Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) | Expression::Not(expr) => {
+                expr.operators_recursive(acc)
+            }
+            Expression::Multiply(lhs, rhs)
+            | Expression::Divide(lhs, rhs)
+            | Expression::Modulo(lhs, rhs)
+            | Expression::Add(lhs, rhs)
+            | Expression::Subtract(lhs, rhs)
+            | Expression::LessThan(lhs, rhs)
+            | Expression::LessThanOrEq(lhs, rhs)
+            | Expression::GreaterThan(lhs, rhs)
+            | Expression::GreaterThanOrEq(lhs, rhs)
+            | Expression::Equal(lhs, rhs)
+            | Expression::NotEqual(lhs, rhs)
+            | Expression::And(lhs, rhs)
+            | Expression::Or(lhs, rhs) => {
+                lhs.operators_recursive(acc);
+                rhs.operators_recursive(acc);
+            }
+            Expression::FunctionCall { parameters, .. } => {
+                for param in parameters {
+                    param.operators_recursive(acc);
+                }
+            }
+            Expression::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                condition.operators_recursive(acc);
+                then_branch.operators_recursive(acc);
+                else_branch.operators_recursive(acc);
+            }
+            Expression::InlineComment(_) => {}
+            Expression::Constant(_) => {}
+        }
+    }
 }
