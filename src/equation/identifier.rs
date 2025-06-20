@@ -150,24 +150,6 @@ impl Identifier {
     /// the statement keywords IF, THEN, and ELSE... are reserved identifiers."
     const RESERVED_KEYWORDS: [&'static str; 6] = ["and", "or", "not", "if", "then", "else"];
 
-    /// Reserved namespace identifiers.
-    ///
-    /// These namespaces are predefined by XMILE and vendor specifications.
-    /// Users cannot create namespaces with these names.
-    const RESERVED_NAMESPACES: [&'static str; 11] = [
-        "std",
-        "user",
-        "anylogic",
-        "forio",
-        "insightmaker",
-        "isee",
-        "powersim",
-        "simanticssd",
-        "simile",
-        "sysdea",
-        "vensim",
-    ];
-
     /// Reserved built-in function names.
     ///
     /// These functions are provided by the XMILE standard library and cannot
@@ -500,7 +482,6 @@ impl Identifier {
         // Check against all reserved word categories
         let all_reserved = Self::RESERVED_KEYWORDS
             .iter()
-            .chain(Self::RESERVED_NAMESPACES.iter())
             .chain(Self::RESERVED_FUNCTIONS.iter());
 
         for reserved in all_reserved {
@@ -956,10 +937,6 @@ mod tests {
         // Language keywords
         assert!(Identifier::from_str("AND").is_err());
         assert!(Identifier::from_str("if").is_err());
-
-        // Reserved namespaces
-        assert!(Identifier::from_str("std").is_err());
-        assert!(Identifier::from_str("vensim").is_err());
 
         // Built-in functions
         assert!(Identifier::from_str("sin").is_err());

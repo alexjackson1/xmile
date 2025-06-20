@@ -68,14 +68,15 @@
 //! ## Sign Handling
 //!
 //! The specification is ambiguous about whether leading signs are part of the
-//! numeric constant or separate unary operators. This implementation:
+//! numeric constant or separate unary operators. Specifically, it includes a
+//! negative number example (`-1`) but does not clarify if the sign is part of
+//! the constant or a unary operation (as the text would indicate).
 //!
-//! - **Accepts negative numbers**: `-1` is a valid numeric constant
-//! - **Accepts positive numbers**: `+1` is valid but generates a warning
-//! - **Warns about redundant `+`**: The positive sign is unnecessary in constants
-//! - **Defers to expressions**: Unary operators can still be applied in expressions
-//!
-//! This approach balances specification compliance with practical usability.
+//! For practical purposes, this implementation treats leading signs as part of
+//! the numeric constant. This means:
+//! - `-1` is parsed as a valid numeric constant with value -1.0
+//! - `+42` is also valid, but a leading `+` is considered redundant and will
+//!   generate a warning during parsing
 //!
 //! ## Error Handling
 //!

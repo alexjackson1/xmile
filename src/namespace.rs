@@ -300,6 +300,40 @@ impl Namespace {
         )
     }
 
+    /// Returns a list of all reserved namespaces.
+    ///
+    /// This includes all predefined namespaces as well as vendor-specific namespaces.
+    ///
+    /// # Returns
+    ///
+    /// A vector containing all reserved `Namespace` values.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use xmile::Namespace;
+    ///
+    /// let reserved = Namespace::reserved_namespaces();
+    /// assert!(reserved.contains(&Namespace::Std));
+    /// assert!(reserved.contains(&Namespace::Vensim));
+    /// assert!(!reserved.contains(&Namespace::Other("custom".to_string())));
+    /// ```
+    pub fn reserved_namespaces() -> Vec<Namespace> {
+        vec![
+            Namespace::Std,
+            Namespace::User,
+            Namespace::Anylogic,
+            Namespace::Forio,
+            Namespace::Insightmaker,
+            Namespace::Isee,
+            Namespace::Powersim,
+            Namespace::Simanticssd,
+            Namespace::Simile,
+            Namespace::Sysdea,
+            Namespace::Vensim,
+        ]
+    }
+
     /// Converts a namespace path to a dot-separated string prefix.
     ///
     /// Takes a slice of namespace components and joins them with dots
