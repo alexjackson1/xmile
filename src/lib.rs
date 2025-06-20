@@ -6,6 +6,9 @@ pub mod namespace;
 
 pub mod types;
 
+pub use crate::containers::{
+    Container, ContainerMut, GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType,
+};
 pub use crate::core::Uid;
 pub use crate::equation::{
     Expression, Identifier, Measure, NumericConstant, Operator, UnitEquation, UnitOfMeasure,
