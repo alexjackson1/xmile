@@ -5,14 +5,18 @@ pub mod model;
 pub mod namespace;
 
 pub mod types;
+// pub mod xml;
 
-pub use crate::containers::{
-    Container, ContainerMut, GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType,
-};
+#[cfg(test)]
+mod test_utils;
+
+pub use crate::containers::{Container, ContainerMut};
 pub use crate::core::Uid;
 pub use crate::equation::{
     Expression, Identifier, Measure, NumericConstant, Operator, UnitEquation, UnitOfMeasure,
 };
+pub use crate::model::{GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType};
+
 pub use crate::namespace::Namespace;
 
 pub fn add(left: u64, right: u64) -> u64 {

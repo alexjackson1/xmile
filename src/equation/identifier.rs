@@ -66,6 +66,7 @@
 //! ```
 
 use log::warn;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use std::cmp::Ordering;
@@ -848,6 +849,26 @@ impl Hash for Identifier {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.compare_key.hash(state);
         self.namespace_path.hash(state);
+    }
+}
+// Custom Deserialize implementation that uses FromStr
+impl<'de> Deserialize<'de> for Identifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Identifier::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+// Custom Serialize implementation that outputs the raw form
+impl Serialize for Identifier {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.raw)
     }
 }
 

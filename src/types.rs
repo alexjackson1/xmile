@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 /// A result type that can contain warnings alongside the successful result.
 ///
 /// This enum allows functions to return successful results while still
@@ -74,4 +76,67 @@ impl<T, W> From<WithWarnings<T, W>> for (T, Vec<W>) {
             WithWarnings::Warning(data, warnings) => (data, warnings),
         }
     }
+}
+
+/// A validation result type that can represent valid, warning, or invalid states.
+///
+/// This enum is used to encapsulate the outcome of a validation process,
+/// allowing for successful validations with or without warnings, as well as
+/// failed validations with error messages.
+///
+/// # Type Parameters
+/// * `T` - The type of the valid result
+/// * `W` - The type of warnings (default is `String`)
+/// * `E` - The type of error messages (default is `String`)
+pub enum ValidationResult<T = (), W = String, E: Debug = String> {
+    /// Represents a successful validation with no warnings.
+    Valid(T),
+    /// Represents a successful validation with warnings.
+    Warnings(T, Vec<W>),
+    /// Represents a failed validation with an error message.
+    Invalid(Vec<W>, Vec<E>),
+}
+
+impl<T, W, E: Debug> ValidationResult<T, W, E> {
+    /// Checks if the validation result is valid (no warnings or errors).
+    pub fn is_valid(&self) -> bool {
+        matches!(self, ValidationResult::Valid(_))
+    }
+
+    /// Checks if the validation result has warnings.
+    pub fn has_warnings(&self) -> bool {
+        matches!(self, ValidationResult::Warnings(_, _))
+    }
+
+    /// Checks if the validation result is invalid (contains errors).
+    pub fn is_invalid(&self) -> bool {
+        matches!(self, ValidationResult::Invalid(_, _))
+    }
+
+    /// Extracts the valid data, discarding any warnings or errors.
+    ///
+    /// This consumes the `ValidationResult` and returns the contained value,
+    /// regardless of whether there were warnings or errors.
+    ///
+    /// # Arguments
+    /// * `msg` - A message to include in the panic if the result is invalid
+    ///
+    /// # Panics
+    /// If the result is `Invalid`, this method will panic with the error messages.
+    pub fn expect_valid<S>(self, msg: S) -> T
+    where
+        S: Into<String>,
+    {
+        match self {
+            ValidationResult::Valid(data) => data,
+            ValidationResult::Warnings(data, _) => data,
+            ValidationResult::Invalid(_, errors) => {
+                panic!("{}: {:?}", msg.into(), errors)
+            }
+        }
+    }
+}
+
+pub trait Validate<T = (), W = String, E: Debug = String> {
+    fn validate(&self) -> ValidationResult<T, W, E>;
 }

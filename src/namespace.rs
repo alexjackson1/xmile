@@ -50,6 +50,8 @@
 use std::hash::Hash;
 use std::{fmt, ops};
 
+use serde::{Deserialize, Serialize};
+
 /// XMILE namespace enumeration supporting both predefined and custom namespaces.
 ///
 /// This enum represents all predefined XMILE namespaces as well as custom
@@ -79,7 +81,7 @@ use std::{fmt, ops};
 /// The `Other(String)` variant allows for custom namespaces not covered
 /// by the predefined list. These are parsed from any namespace identifier
 /// that doesn't match a predefined name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum Namespace {
     /// All XMILE statement and function identifiers
     ///

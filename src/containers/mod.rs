@@ -61,12 +61,13 @@
 //!
 //! // Works with any XMILE container
 //! let graphical_function = GraphicalFunction {
-//!     name: Identifier::parse_default("example").unwrap(),
+//!     name: Some(Identifier::parse_default("example").unwrap()),
 //!     function_type: Some(GraphicalFunctionType::Continuous),
-//!     data: GraphicalFunctionData::UniformScale {
-//!         y_values: vec![0.0, 1.0, 2.0, 3.0],
-//!         x_scale: (0.0, 3.0),
-//!     }
+//!     data: GraphicalFunctionData::uniform_scale(
+//!         (0.0, 3.0),
+//!         vec![0.0, 1.0, 2.0, 3.0],
+//!         Some((0.0, 3.0)),
+//!     ),
 //! };
 //! analyse_container(&graphical_function);
 //! ```
@@ -357,10 +358,6 @@
 //! system dynamics models with complex data structures and mathematical operations.
 
 use std::ops::{Index, IndexMut};
-
-pub mod graphical;
-
-pub use graphical::{GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType};
 
 /// Core trait for all XMILE containers providing uniform access and operations.
 ///
