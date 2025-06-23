@@ -9,14 +9,6 @@ use super::{
     Identifier,
 };
 
-/// Helper function to parse separated values
-fn parse_separated(s: &str, separator: &str) -> Result<Vec<f64>, String> {
-    s.split(separator)
-        .map(|s| s.trim().parse::<f64>())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("Failed to parse number: {}", e))
-}
-
 /// Graphical Function Scale XML representation.
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize)]
 struct RawGraphicalFunctionScale {
@@ -47,20 +39,22 @@ impl<'de> Deserialize<'de> for GraphicalFunctionScale {
 /// Points XML representation.
 #[derive(Debug, Deserialize)]
 struct RawPoints {
-    #[serde(rename = "@separator")]
+    #[serde(rename = "@sep")]
     separator: Option<String>,
     #[serde(rename = "#text")]
-    y_pts: String,
+    data: String,
 }
 
 impl TryFrom<RawPoints> for Points {
     type Error = String;
 
     fn try_from(raw: RawPoints) -> Result<Self, Self::Error> {
-        let separator = raw.separator;
-        let sep = separator.as_deref().unwrap_or(",");
-        let x_values = parse_separated(&raw.y_pts, sep)?;
-        Ok(Points::new(x_values, separator))
+        raw.data
+            .split(raw.separator.as_deref().unwrap_or(","))
+            .map(|val_str| val_str.trim().parse::<f64>())
+            .collect::<Result<Vec<f64>, _>>()
+            .map(|vals| Points::new(vals, raw.separator))
+            .map_err(|e| format!("Failed to parse number: {}", e))
     }
 }
 
