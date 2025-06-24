@@ -38,17 +38,17 @@ impl<'de> Deserialize<'de> for GraphicalFunctionScale {
 
 /// Points XML representation.
 #[derive(Debug, Deserialize)]
-struct RawPoints {
+struct RawGraphicalFunctionPoints {
     #[serde(rename = "@sep")]
     separator: Option<String>,
     #[serde(rename = "#text")]
     data: String,
 }
 
-impl TryFrom<RawPoints> for Points {
+impl TryFrom<RawGraphicalFunctionPoints> for Points {
     type Error = String;
 
-    fn try_from(raw: RawPoints) -> Result<Self, Self::Error> {
+    fn try_from(raw: RawGraphicalFunctionPoints) -> Result<Self, Self::Error> {
         raw.data
             .split(raw.separator.as_deref().unwrap_or(","))
             .map(|val_str| val_str.trim().parse::<f64>())
@@ -66,9 +66,9 @@ struct RawGraphicalFunctionData {
     #[serde(rename = "yscale")]
     y_scale: Option<GraphicalFunctionScale>,
     #[serde(rename = "ypts")]
-    y_pts: Option<RawPoints>,
+    y_pts: Option<RawGraphicalFunctionPoints>,
     #[serde(rename = "xpts")]
-    x_pts: Option<RawPoints>,
+    x_pts: Option<RawGraphicalFunctionPoints>,
 }
 
 impl TryFrom<RawGraphicalFunctionData> for GraphicalFunctionData {
@@ -142,9 +142,9 @@ struct RawGraphicalFunction {
     #[serde(rename = "yscale")]
     y_scale: Option<GraphicalFunctionScale>,
     #[serde(rename = "ypts")]
-    y_pts: Option<RawPoints>,
+    y_pts: Option<RawGraphicalFunctionPoints>,
     #[serde(rename = "xpts")]
-    x_pts: Option<RawPoints>,
+    x_pts: Option<RawGraphicalFunctionPoints>,
 }
 
 impl From<RawGraphicalFunction> for RawGraphicalFunctionData {
