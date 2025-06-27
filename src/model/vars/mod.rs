@@ -1,3 +1,6 @@
+#[cfg(feature = "arrays")]
+pub mod array;
+
 pub mod aux;
 pub mod flow;
 pub mod gf;
