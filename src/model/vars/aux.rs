@@ -10,6 +10,8 @@ pub struct Auxiliary {
     pub name: Identifier,
     pub documentation: Option<Documentation>,
     pub equation: Expression,
+    #[cfg(feature = "mathml")]
+    pub mathml_equation: Option<String>,
     pub units: Option<UnitOfMeasure>,
     pub range: Option<DeviceRange>,
     pub scale: Option<DeviceScale>,
@@ -23,6 +25,11 @@ impl Var<'_> for Auxiliary {
 
     fn equation(&self) -> Option<&Expression> {
         Some(&self.equation)
+    }
+
+    #[cfg(feature = "mathml")]
+    fn mathml_equation(&self) -> Option<&String> {
+        self.mathml_equation.as_ref()
     }
 }
 

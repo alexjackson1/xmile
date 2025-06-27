@@ -25,6 +25,11 @@ impl Var<'_> for Flow {
     fn equation(&self) -> Option<&Expression> {
         Some(&self.equation)
     }
+
+    #[cfg(feature = "mathml")]
+    fn mathml_equation(&self) -> Option<&String> {
+        self.mathml_equation.as_ref()
+    }
 }
 
 impl Object for Flow {

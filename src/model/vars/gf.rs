@@ -94,6 +94,10 @@ pub struct GraphicalFunction {
     /// Optional equation describing the function
     pub equation: Option<Expression>,
 
+    /// Optional MathML representation of the equation
+    #[cfg(feature = "mathml")]
+    pub mathml_equation: Option<String>,
+
     /// Optional units of measure for this graphical function
     pub units: Option<UnitOfMeasure>,
 
@@ -130,6 +134,8 @@ impl GraphicalFunction {
             r#type,
             data,
             equation: None,
+            #[cfg(feature = "mathml")]
+            mathml_equation: None,
             units: None,
             documentation: None,
             range: None,
@@ -152,6 +158,8 @@ impl GraphicalFunction {
             r#type: Some(GraphicalFunctionType::Continuous),
             data,
             equation: None,
+            #[cfg(feature = "mathml")]
+            mathml_equation: None,
             units: None,
             documentation: None,
             range: None,
@@ -174,6 +182,8 @@ impl GraphicalFunction {
             r#type: Some(GraphicalFunctionType::Discrete),
             data,
             equation: None,
+            #[cfg(feature = "mathml")]
+            mathml_equation: None,
             units: None,
             documentation: None,
             range: None,
@@ -196,6 +206,8 @@ impl GraphicalFunction {
             r#type: Some(GraphicalFunctionType::Extrapolate),
             data,
             equation: None,
+            #[cfg(feature = "mathml")]
+            mathml_equation: None,
             units: None,
             documentation: None,
             range: None,
@@ -295,6 +307,15 @@ impl Var<'_> for GraphicalFunction {
     /// An optional reference to the equation expression.
     fn equation(&self) -> Option<&Expression> {
         self.equation.as_ref()
+    }
+
+    /// Returns the MathML representation of the equation, if available.
+    ///
+    /// # Returns
+    /// An optional reference to the MathML equation string.
+    #[cfg(feature = "mathml")]
+    fn mathml_equation(&self) -> Option<&String> {
+        self.mathml_equation.as_ref()
     }
 }
 

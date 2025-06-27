@@ -35,6 +35,21 @@ pub struct Stock {
     pub format: Option<FormatOptions>,
 }
 
+impl Var<'_> for Stock {
+    fn name(&self) -> Option<&Identifier> {
+        Some(&self.name)
+    }
+
+    fn equation(&self) -> Option<&Expression> {
+        todo!()
+    }
+
+    #[cfg(feature = "mathml")]
+    fn mathml_equation(&self) -> Option<&String> {
+        todo!()
+    }
+}
+
 impl Object for Stock {
     fn range(&self) -> Option<&DeviceRange> {
         self.range.as_ref()
