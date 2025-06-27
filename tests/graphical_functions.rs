@@ -11,15 +11,15 @@ use xmile::{
 #[test]
 fn test_xmile_spec_example_complete() {
     // Complete example from XMILE specification
-    let food_availability = GraphicalFunction {
-        name: Some(Identifier::parse_default("food_availability_multiplier_function").unwrap()),
-        data: GraphicalFunctionData::uniform_scale(
+    let food_availability = GraphicalFunction::new(
+        Some(Identifier::parse_default("food_availability_multiplier_function").unwrap()),
+        Some(GraphicalFunctionType::Continuous),
+        GraphicalFunctionData::uniform_scale(
             (0.0, 1.0),
             vec![0.0, 0.3, 0.55, 0.7, 0.83, 0.9, 0.95, 0.98, 0.99, 0.995, 1.0],
             None,
         ),
-        function_type: Some(GraphicalFunctionType::Continuous),
-    };
+    );
 
     // Validate the function
     assert!(matches!(
@@ -39,17 +39,11 @@ fn test_xmile_spec_example_complete() {
 #[test]
 fn test_equivalent_representations() {
     #[cfg(test)]
-    let uniform = GraphicalFunction {
-        name: None,
-        data: GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None),
-        function_type: Some(GraphicalFunctionType::Continuous),
-    };
+    let uniform: GraphicalFunction =
+        GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None).into();
 
-    let xy_pairs = GraphicalFunction {
-        name: None,
-        data: GraphicalFunctionData::xy_pairs(vec![0.0, 0.5, 1.0], vec![0.0, 0.5, 1.0], None),
-        function_type: Some(GraphicalFunctionType::Continuous),
-    };
+    let xy_pairs: GraphicalFunction =
+        GraphicalFunctionData::xy_pairs(vec![0.0, 0.5, 1.0], vec![0.0, 0.5, 1.0], None).into();
 
     // Test multiple evaluation points
     let test_points = vec![-0.5, 0.0, 0.25, 0.5, 0.75, 1.0, 1.5];

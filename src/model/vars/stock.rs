@@ -1,6 +1,6 @@
 use crate::{
     Expression, Identifier, Measure, UnitOfMeasure,
-    model::object::{Document, Documentation, FormatOptions, Object, Range, Scale},
+    model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
 };
 
 use super::Var;
@@ -26,21 +26,21 @@ pub struct Stock {
     pub documentation: Option<Documentation>,
 
     /// The range of values for the stock variable.
-    pub range: Option<Range>,
+    pub range: Option<DeviceRange>,
 
     /// The scale of the stock variable.
-    pub scale: Option<Scale>,
+    pub scale: Option<DeviceScale>,
 
     /// The format options for the stock variable.
     pub format: Option<FormatOptions>,
 }
 
 impl Object for Stock {
-    fn range(&self) -> Option<&Range> {
+    fn range(&self) -> Option<&DeviceRange> {
         self.range.as_ref()
     }
 
-    fn scale(&self) -> Option<&Scale> {
+    fn scale(&self) -> Option<&DeviceScale> {
         self.scale.as_ref()
     }
 

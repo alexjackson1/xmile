@@ -1,6 +1,6 @@
 use crate::{
     Expression, Identifier, Measure, UnitOfMeasure,
-    model::object::{Document, Documentation, FormatOptions, Object, Range, Scale},
+    model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
 };
 
 use super::Var;
@@ -12,14 +12,14 @@ pub struct Flow {
     pub mathml_equation: Option<String>,
     pub units: Option<UnitOfMeasure>,
     pub documentation: Option<Documentation>,
-    pub range: Option<Range>,
-    pub scale: Option<Scale>,
+    pub range: Option<DeviceRange>,
+    pub scale: Option<DeviceScale>,
     pub format: Option<FormatOptions>,
 }
 
 impl Var<'_> for Flow {
-    fn name(&self) -> &Identifier {
-        &self.name
+    fn name(&self) -> Option<&Identifier> {
+        Some(&self.name)
     }
 
     fn equation(&self) -> Option<&Expression> {
@@ -28,11 +28,11 @@ impl Var<'_> for Flow {
 }
 
 impl Object for Flow {
-    fn range(&self) -> Option<&Range> {
+    fn range(&self) -> Option<&DeviceRange> {
         self.range.as_ref()
     }
 
-    fn scale(&self) -> Option<&Scale> {
+    fn scale(&self) -> Option<&DeviceScale> {
         self.scale.as_ref()
     }
 

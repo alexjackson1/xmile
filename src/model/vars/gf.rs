@@ -16,11 +16,7 @@
 //!     Some((0.0, 1.0)), // Optional y-scale
 //! );
 //!
-//! let function = GraphicalFunction {
-//!     name: None, // Anonymous/embedded
-//!     data,
-//!     function_type: Some(GraphicalFunctionType::Continuous),
-//! };
+//! let function: GraphicalFunction = data.into();  // default values
 //! ```
 //!
 //! ## Data Representation
@@ -42,10 +38,16 @@ use std::{
 };
 
 use crate::{
-    Identifier,
+    Expression, Identifier, Measure, UnitOfMeasure,
     containers::{Container, ContainerMut},
     equation::IdentifierError,
-    model::vars::gf::data::{GraphicalFunctionDataParseError, RawGraphicalFunctionData},
+    model::{
+        object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
+        vars::{
+            Var,
+            gf::data::{GraphicalFunctionDataParseError, RawGraphicalFunctionData},
+        },
+    },
     types::{Validate, ValidationResult},
     validation_utils,
 };
@@ -66,18 +68,17 @@ pub use scale::GraphicalFunctionScale;
 /// use xmile::{GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType, Identifier};
 ///
 /// // Standalone named function
-/// let named_function = GraphicalFunction {
-///     name: Some(Identifier::parse_default("growth_rate").unwrap()),
-///     data: GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.8, 1.0], None),
-///     function_type: Some(GraphicalFunctionType::Continuous),
-/// };
+/// let named_function = GraphicalFunction::continuous(
+///     Some(Identifier::parse_default("growth_rate").unwrap()),
+///     GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.8, 1.0], None),
+/// );
 ///
 /// // Anonymous embedded function  
-/// let embedded_function = GraphicalFunction {
-///     name: None,
-///     data: GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.8, 1.0], None),
-///     function_type: None, // Defaults to Continuous
-/// };
+/// let embedded_function: GraphicalFunction = GraphicalFunctionData::uniform_scale(
+///     (0.0, 1.0),
+///     vec![0.0, 0.8, 1.0],
+///     None
+/// ).into();
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphicalFunction {
@@ -85,13 +86,160 @@ pub struct GraphicalFunction {
     pub name: Option<Identifier>,
 
     /// Interpolation and extrapolation behaviour (defaults to continuous if None)
-    pub function_type: Option<GraphicalFunctionType>,
+    pub r#type: Option<GraphicalFunctionType>,
 
     /// The x-y relationship data
     pub data: GraphicalFunctionData,
+
+    /// Optional equation describing the function
+    pub equation: Option<Expression>,
+
+    /// Optional units of measure for this graphical function
+    pub units: Option<UnitOfMeasure>,
+
+    /// Optional documentation for this graphical function
+    pub documentation: Option<Documentation>,
+
+    /// Optional display range for this graphical function
+    pub range: Option<DeviceRange>,
+
+    /// Optional display scale of this graphical function
+    pub scale: Option<DeviceScale>,
+
+    /// Format options for this graphical function
+    pub format: Option<FormatOptions>,
 }
 
 impl GraphicalFunction {
+    /// Creates a new graphical function with the specified parameters.
+    ///
+    /// # Arguments
+    /// - `name`: Optional identifier for the function (None for anonymous functions).
+    /// - `r#type`: Optional function type (defaults to Continuous if None).
+    /// - `data`: The x-y relationship data for the function.
+    ///
+    /// # Returns
+    /// A new `GraphicalFunction` instance with the provided parameters.
+    pub fn new(
+        name: Option<Identifier>,
+        r#type: Option<GraphicalFunctionType>,
+        data: GraphicalFunctionData,
+    ) -> Self {
+        GraphicalFunction {
+            name,
+            r#type,
+            data,
+            equation: None,
+            units: None,
+            documentation: None,
+            range: None,
+            scale: None,
+            format: None,
+        }
+    }
+
+    /// Creates a continuous graphical function with the specified data.
+    ///
+    /// # Arguments
+    /// - `name`: Optional identifier for the function (None for anonymous functions).
+    /// - `data`: The x-y relationship data for the function.
+    ///
+    /// # Returns
+    /// A new `GraphicalFunction` instance with type set to Continuous.
+    pub fn continuous(name: Option<Identifier>, data: GraphicalFunctionData) -> Self {
+        GraphicalFunction {
+            name,
+            r#type: Some(GraphicalFunctionType::Continuous),
+            data,
+            equation: None,
+            units: None,
+            documentation: None,
+            range: None,
+            scale: None,
+            format: None,
+        }
+    }
+
+    /// Creates a discrete graphical function with the specified data.
+    ///
+    /// # Arguments
+    /// - `name`: Optional identifier for the function (None for anonymous functions).
+    /// - `data`: The x-y relationship data for the function.
+    ///
+    /// # Returns
+    /// A new `GraphicalFunction` instance with type set to Discrete.
+    pub fn discrete(name: Option<Identifier>, data: GraphicalFunctionData) -> Self {
+        GraphicalFunction {
+            name,
+            r#type: Some(GraphicalFunctionType::Discrete),
+            data,
+            equation: None,
+            units: None,
+            documentation: None,
+            range: None,
+            scale: None,
+            format: None,
+        }
+    }
+
+    /// Creates an extrapolating graphical function with the specified data.
+    ///
+    /// # Arguments
+    /// - `name`: Optional identifier for the function (None for anonymous functions).
+    /// - `data`: The x-y relationship data for the function.
+    ///
+    /// # Returns
+    /// A new `GraphicalFunction` instance with type set to Extrapolate.
+    pub fn extrapolate(name: Option<Identifier>, data: GraphicalFunctionData) -> Self {
+        GraphicalFunction {
+            name,
+            r#type: Some(GraphicalFunctionType::Extrapolate),
+            data,
+            equation: None,
+            units: None,
+            documentation: None,
+            range: None,
+            scale: None,
+            format: None,
+        }
+    }
+
+    /// Sets the equation of the graphical function and returns it.
+    pub fn with_equation(mut self, equation: Expression) -> Self {
+        self.equation = Some(equation);
+        self
+    }
+
+    /// Sets the units of measure for this graphical function and returns it.
+    pub fn with_units(mut self, units: UnitOfMeasure) -> Self {
+        self.units = Some(units);
+        self
+    }
+
+    /// Sets the documentation for this graphical function and returns it.
+    pub fn with_documentation(mut self, documentation: Documentation) -> Self {
+        self.documentation = Some(documentation);
+        self
+    }
+
+    /// Sets the range of values for this graphical function and returns it.
+    pub fn with_range(mut self, range: DeviceRange) -> Self {
+        self.range = Some(range);
+        self
+    }
+
+    /// Sets the scale of this graphical function and returns it.
+    pub fn with_scale(mut self, scale: DeviceScale) -> Self {
+        self.scale = Some(scale);
+        self
+    }
+
+    /// Sets the format options for this graphical function and returns it.
+    pub fn with_format(mut self, format: FormatOptions) -> Self {
+        self.format = Some(format);
+        self
+    }
+
     /// Returns true if this function has no name (embedded function).
     ///
     /// # Returns
@@ -105,7 +253,7 @@ impl GraphicalFunction {
     /// # Returns
     /// The function type as `GraphicalFunctionType`.
     pub fn function_type(&self) -> GraphicalFunctionType {
-        self.function_type.clone().unwrap_or_default()
+        self.r#type.clone().unwrap_or_default()
     }
 
     /// Evaluates the function at a given x-value.
@@ -127,6 +275,72 @@ impl GraphicalFunction {
             GraphicalFunctionType::Extrapolate => self.data.evaluate_extrapolate(x),
             GraphicalFunctionType::Discrete => self.data.evaluate_discrete(x),
         }
+    }
+}
+
+// VARIABLE IMPLEMENTATIONS
+
+impl Var<'_> for GraphicalFunction {
+    /// Returns the name of this graphical function.
+    ///
+    /// # Returns
+    /// An optional reference to the function name.
+    fn name(&self) -> Option<&Identifier> {
+        self.name.as_ref()
+    }
+
+    /// Returns the equation for this graphical function.
+    ///
+    /// # Returns
+    /// An optional reference to the equation expression.
+    fn equation(&self) -> Option<&Expression> {
+        self.equation.as_ref()
+    }
+}
+
+impl Document for GraphicalFunction {
+    /// Returns the documentation for this graphical function.
+    ///
+    /// # Returns
+    /// An optional reference to the documentation.
+    fn documentation(&self) -> Option<&crate::model::object::Documentation> {
+        None // No documentation field in GraphicalFunction
+    }
+}
+
+impl Measure for GraphicalFunction {
+    /// Returns the units of measure for this graphical function.
+    ///
+    /// # Returns
+    /// An optional reference to the units of measure.
+    fn units(&self) -> Option<&crate::UnitOfMeasure> {
+        None // No units field in GraphicalFunction
+    }
+}
+
+impl Object for GraphicalFunction {
+    /// Returns the range of values for this graphical function.
+    ///
+    /// # Returns
+    /// An optional reference to the range.
+    fn range(&self) -> Option<&DeviceRange> {
+        None // No range field in GraphicalFunction
+    }
+
+    /// Returns the scale of this graphical function.
+    ///
+    /// # Returns
+    /// An optional reference to the scale.
+    fn scale(&self) -> Option<&DeviceScale> {
+        None // No scale field in GraphicalFunction
+    }
+
+    /// Returns the format options for this graphical function.
+    ///
+    /// # Returns
+    /// An optional reference to the format options.
+    fn format(&self) -> Option<&FormatOptions> {
+        None // No format field in GraphicalFunction
     }
 }
 
@@ -269,6 +483,13 @@ impl From<RawGraphicalFunction> for RawGraphicalFunctionData {
     }
 }
 
+impl From<GraphicalFunctionData> for GraphicalFunction {
+    /// Converts structured GraphicalFunctionData into a raw XML representation.
+    fn from(data: GraphicalFunctionData) -> GraphicalFunction {
+        GraphicalFunction::new(None, None, data)
+    }
+}
+
 /// Error types for parsing graphical functions from XML.
 #[derive(Debug, Error)]
 pub enum GraphicalFunctionParseError {
@@ -298,7 +519,7 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
             .transpose()?;
 
         // Optionally parse type if present using GraphicalFunctionType::from_str
-        let function_type = raw
+        let r#type = raw
             .r#type
             .as_ref()
             .map(|type_str| {
@@ -310,11 +531,7 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
         // Convert raw data into GraphicalFunctionData
         let data = Into::<RawGraphicalFunctionData>::into(raw).try_into()?;
 
-        Ok(GraphicalFunction {
-            name,
-            function_type,
-            data,
-        })
+        Ok(GraphicalFunction::new(name, r#type, data))
     }
 }
 
@@ -1586,15 +1803,15 @@ mod tests {
 
     #[test]
     fn test_uniform_scale_creation() {
-        let gf = GraphicalFunction {
-            name: Some(Identifier::parse_default("test_function").unwrap()),
-            data: GraphicalFunctionData::uniform_scale(
+        let gf = GraphicalFunction::new(
+            Some(Identifier::parse_default("test_function").unwrap()),
+            Some(GraphicalFunctionType::Continuous),
+            GraphicalFunctionData::uniform_scale(
                 (0.0, 1.0),
                 vec![0.0, 0.3, 0.55, 0.7, 0.83, 0.9, 0.95, 0.98, 0.99, 0.995, 1.0],
                 None,
             ),
-            function_type: Some(GraphicalFunctionType::Continuous),
-        };
+        );
 
         assert!(!gf.is_anonymous());
         assert_eq!(gf.function_type(), GraphicalFunctionType::Continuous);
@@ -1602,11 +1819,8 @@ mod tests {
 
     #[test]
     fn test_anonymous_function() {
-        let gf = GraphicalFunction {
-            name: None,
-            data: GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None),
-            function_type: None,
-        };
+        let gf: GraphicalFunction =
+            GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None).into();
 
         assert!(gf.is_anonymous());
         assert_eq!(gf.function_type(), GraphicalFunctionType::Continuous); // Default
@@ -1614,26 +1828,23 @@ mod tests {
 
     #[test]
     fn test_xy_pairs_creation() {
-        let gf = GraphicalFunction {
-            name: Some(Identifier::parse_default("xy_function").unwrap()),
-            data: GraphicalFunctionData::xy_pairs(
+        let gf: GraphicalFunction = GraphicalFunction::new(
+            Some(Identifier::parse_default("xy_function").unwrap()),
+            Some(GraphicalFunctionType::Extrapolate),
+            GraphicalFunctionData::xy_pairs(
                 vec![0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
                 vec![0.05, 0.1, 0.2, 0.25, 0.3, 0.33],
                 Some((0.0, 1.0)),
             ),
-            function_type: Some(GraphicalFunctionType::Extrapolate),
-        };
+        );
 
         assert_eq!(gf.function_type(), GraphicalFunctionType::Extrapolate);
     }
 
     #[test]
     fn test_indexing() {
-        let gf = GraphicalFunction {
-            name: None,
-            data: GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None),
-            function_type: None,
-        };
+        let gf: GraphicalFunction =
+            GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None).into();
 
         assert_eq!(gf[0], 0.0);
         assert_eq!(gf[1], 0.5);
@@ -1642,11 +1853,8 @@ mod tests {
 
     #[test]
     fn test_mutable_indexing() {
-        let mut gf = GraphicalFunction {
-            name: None,
-            data: GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None),
-            function_type: None,
-        };
+        let mut gf: GraphicalFunction =
+            GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None).into();
 
         gf[1] = 0.7;
         assert_eq!(gf[1], 0.7);
@@ -1839,15 +2047,12 @@ mod tests {
 
         #[test]
         fn test_zero_range_scale() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::uniform_scale(
-                    (5.0, 5.0), // Zero range
-                    vec![0.5],
-                    None,
-                ),
-                function_type: Some(GraphicalFunctionType::Continuous),
-            };
+            let gf: GraphicalFunction = GraphicalFunctionData::uniform_scale(
+                (5.0, 5.0), // Zero range
+                vec![0.5],
+                None,
+            )
+            .into();
 
             // All evaluations should return the single y-value
             assert_float_eq(gf.evaluate(4.0), 0.5, 1e-10);
@@ -1857,11 +2062,11 @@ mod tests {
 
         #[test]
         fn test_extrapolation_edge_cases() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::xy_pairs(vec![0.0, 1.0], vec![0.0, 1.0], None),
-                function_type: Some(GraphicalFunctionType::Extrapolate),
-            };
+            let gf = GraphicalFunction::new(
+                None,
+                Some(GraphicalFunctionType::Extrapolate),
+                GraphicalFunctionData::xy_pairs(vec![0.0, 1.0], vec![0.0, 1.0], None).into(),
+            );
 
             // Test extrapolation with linear function (should maintain linearity)
             assert_float_eq(gf.evaluate(-1.0), -1.0, 1e-10);
@@ -1870,11 +2075,9 @@ mod tests {
 
         #[test]
         fn test_negative_values() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::uniform_scale((-1.0, 1.0), vec![-0.5, 0.0, 0.5], None),
-                function_type: Some(GraphicalFunctionType::Continuous),
-            };
+            let gf: GraphicalFunction =
+                GraphicalFunctionData::uniform_scale((-1.0, 1.0), vec![-0.5, 0.0, 0.5], None)
+                    .into();
 
             assert_float_eq(gf.evaluate(-1.0), -0.5, 1e-10);
             assert_float_eq(gf.evaluate(0.0), 0.0, 1e-10);
@@ -1883,15 +2086,12 @@ mod tests {
 
         #[test]
         fn test_large_scale_values() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::uniform_scale(
-                    (0.0, 1000000.0),
-                    vec![0.0, 500000.0, 1000000.0],
-                    None,
-                ),
-                function_type: Some(GraphicalFunctionType::Continuous),
-            };
+            let gf: GraphicalFunction = GraphicalFunctionData::uniform_scale(
+                (0.0, 1000000.0),
+                vec![0.0, 500000.0, 1000000.0],
+                None,
+            )
+            .into();
 
             assert_float_eq(gf.evaluate(250000.0), 250000.0, 1.0); // Allow larger tolerance for large numbers
         }
@@ -1924,7 +2124,7 @@ mod tests {
                     function.name,
                     Some(Identifier::parse_default("rising").unwrap())
                 );
-                assert!(function.function_type.is_none()); // Should default to continuous
+                assert!(function.r#type.is_none()); // Should default to continuous
 
                 match function.data {
                     GraphicalFunctionData::UniformScale {
@@ -1957,10 +2157,7 @@ mod tests {
                         Identifier::parse_default("food_availability_multiplier_function").unwrap()
                     )
                 );
-                assert_eq!(
-                    function.function_type,
-                    Some(GraphicalFunctionType::Continuous)
-                );
+                assert_eq!(function.r#type, Some(GraphicalFunctionType::Continuous));
 
                 match function.data {
                     GraphicalFunctionData::UniformScale {
@@ -1996,10 +2193,7 @@ mod tests {
                         Identifier::parse_default("food_availability_multiplier_function").unwrap()
                     )
                 );
-                assert_eq!(
-                    function.function_type,
-                    Some(GraphicalFunctionType::Continuous)
-                );
+                assert_eq!(function.r#type, Some(GraphicalFunctionType::Continuous));
 
                 match function.data {
                     GraphicalFunctionData::XYPairs {
@@ -2032,7 +2226,7 @@ mod tests {
                 let function: GraphicalFunction = serde_xml_rs::from_str(xml).unwrap();
 
                 assert!(function.name.is_none()); // Anonymous/embedded
-                assert!(function.function_type.is_none()); // Should default
+                assert!(function.r#type.is_none()); // Should default
 
                 match function.data {
                     GraphicalFunctionData::UniformScale {
@@ -2141,17 +2335,14 @@ mod tests {
                     serde_xml_rs::from_str(discrete_xml).unwrap();
 
                 assert_eq!(
-                    continuous_func.function_type,
+                    continuous_func.r#type,
                     Some(GraphicalFunctionType::Continuous)
                 );
                 assert_eq!(
-                    extrapolate_func.function_type,
+                    extrapolate_func.r#type,
                     Some(GraphicalFunctionType::Extrapolate)
                 );
-                assert_eq!(
-                    discrete_func.function_type,
-                    Some(GraphicalFunctionType::Discrete)
-                );
+                assert_eq!(discrete_func.r#type, Some(GraphicalFunctionType::Discrete));
             }
 
             #[test]
@@ -2162,10 +2353,7 @@ mod tests {
             </gf>"#;
 
                 let function: GraphicalFunction = serde_xml_rs::from_str(xml).unwrap();
-                assert_eq!(
-                    function.function_type,
-                    Some(GraphicalFunctionType::Continuous)
-                );
+                assert_eq!(function.r#type, Some(GraphicalFunctionType::Continuous));
             }
 
             #[test]
@@ -2638,7 +2826,7 @@ mod tests {
     #[cfg(test)]
     mod validation_tests {
         use crate::{
-            GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType, Identifier,
+            GraphicalFunction, GraphicalFunctionData, Identifier,
             model::vars::gf::{GraphicalFunctionPoints, GraphicalFunctionScale},
             types::Validate,
         };
@@ -2647,15 +2835,14 @@ mod tests {
 
         #[test]
         fn test_valid_uniform_scale_function() {
-            let gf = GraphicalFunction {
-                name: Some(Identifier::parse_default("valid_function").unwrap()),
-                data: GraphicalFunctionData::uniform_scale(
+            let gf = GraphicalFunction::continuous(
+                Some(Identifier::parse_default("valid_function").unwrap()),
+                GraphicalFunctionData::uniform_scale(
                     (0.0, 1.0),
                     vec![0.0, 0.5, 1.0],
                     Some((0.0, 1.0)),
                 ),
-                function_type: Some(GraphicalFunctionType::Continuous),
-            };
+            );
 
             match gf.validate() {
                 ValidationResult::Valid(_) => {} // Expected
@@ -2665,15 +2852,9 @@ mod tests {
 
         #[test]
         fn test_valid_xy_pairs_function() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::xy_pairs(
-                    vec![0.0, 0.5, 1.0],
-                    vec![0.0, 0.3, 1.0],
-                    None,
-                ),
-                function_type: Some(GraphicalFunctionType::Continuous),
-            };
+            let gf: GraphicalFunction =
+                GraphicalFunctionData::xy_pairs(vec![0.0, 0.5, 1.0], vec![0.0, 0.3, 1.0], None)
+                    .into();
 
             match gf.validate() {
                 ValidationResult::Valid(_) => {} // Expected
@@ -2683,15 +2864,14 @@ mod tests {
 
         #[test]
         fn test_invalid_discrete_function() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::uniform_scale(
+            let gf = GraphicalFunction::discrete(
+                None,
+                GraphicalFunctionData::uniform_scale(
                     (0.0, 1.0),
                     vec![0.0, 0.5, 1.0], // Last two values different
                     None,
                 ),
-                function_type: Some(GraphicalFunctionType::Discrete),
-            };
+            );
 
             match gf.validate() {
                 ValidationResult::Invalid(_, errors) => {
@@ -2706,15 +2886,14 @@ mod tests {
 
         #[test]
         fn test_valid_discrete_function() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::uniform_scale(
+            let gf = GraphicalFunction::discrete(
+                None,
+                GraphicalFunctionData::uniform_scale(
                     (0.0, 1.0),
                     vec![0.0, 0.5, 0.8, 0.8], // Last two values same
                     None,
                 ),
-                function_type: Some(GraphicalFunctionType::Discrete),
-            };
+            );
 
             match gf.validate() {
                 ValidationResult::Valid(_) => {} // Expected
@@ -2754,15 +2933,12 @@ mod tests {
 
         #[test]
         fn test_unordered_x_values() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::xy_pairs(
-                    vec![0.0, 1.0, 0.5], // Not in ascending order
-                    vec![0.0, 0.3, 1.0],
-                    None,
-                ),
-                function_type: Some(GraphicalFunctionType::Continuous),
-            };
+            let gf: GraphicalFunction = GraphicalFunctionData::xy_pairs(
+                vec![0.0, 1.0, 0.5], // Not in ascending order
+                vec![0.0, 0.3, 1.0],
+                None,
+            )
+            .into();
 
             match gf.validate() {
                 ValidationResult::Invalid(_, errors) => {
@@ -2775,15 +2951,15 @@ mod tests {
 
         #[test]
         fn test_insufficient_discrete_points() {
-            let gf = GraphicalFunction {
-                name: None,
-                data: GraphicalFunctionData::uniform_scale(
+            let gf = GraphicalFunction::new(
+                None,
+                Some(GraphicalFunctionType::Discrete),
+                GraphicalFunctionData::uniform_scale(
                     (0.0, 1.0),
                     vec![0.5], // Only one point
                     None,
                 ),
-                function_type: Some(GraphicalFunctionType::Discrete),
-            };
+            );
 
             match gf.validate() {
                 ValidationResult::Invalid(_, errors) => {

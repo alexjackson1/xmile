@@ -23,18 +23,18 @@ use crate::types::{Validate, ValidationResult};
 //
 // These can also be overridden, using the same attribute names, in variable definitions of individual input or output devices.
 pub trait Object {
-    fn range(&self) -> Option<&Range>;
-    fn scale(&self) -> Option<&Scale>;
+    fn range(&self) -> Option<&DeviceRange>;
+    fn scale(&self) -> Option<&DeviceScale>;
     fn format(&self) -> Option<&FormatOptions>;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Range {
+pub struct DeviceRange {
     pub min: f64,
     pub max: f64,
 }
 
-impl Validate for Range {
+impl Validate for DeviceRange {
     fn validate(&self) -> ValidationResult {
         let warnings = Vec::new();
         let mut errors = Vec::new();
@@ -63,7 +63,7 @@ pub enum DisplayAs {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Scale {
+pub enum DeviceScale {
     MinMax { min: f64, max: f64 },
     Auto(bool),
     Group(Option<u32>),

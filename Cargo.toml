@@ -47,5 +47,6 @@ conveyors = []
 queues = []
 submodels = []
 macros = []
-full = ["arrays", "conveyors", "queues", "submodels", "macros"]
+mathml = []
+full = ["arrays", "conveyors", "queues", "submodels", "macros", "mathml"]
 # Optional features

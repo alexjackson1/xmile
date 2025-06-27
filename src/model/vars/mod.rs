@@ -62,7 +62,10 @@ pub enum Variable {
 /// user-specified text fields in a XMILE file (i.e., including those in
 /// display objects defined in Chapters 5 and 6).
 pub trait Var<'a>: Object + Measure + Document {
-    fn name(&self) -> &Identifier;
+    fn name(&self) -> Option<&Identifier>;
 
     fn equation(&self) -> Option<&Expression>;
+
+    #[cfg(feature = "mathml")]
+    fn mathml_equation(&self) -> Option<&String>;
 }

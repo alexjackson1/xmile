@@ -60,15 +60,15 @@
 //! }
 //!
 //! // Works with any XMILE container
-//! let graphical_function = GraphicalFunction {
-//!     name: Some(Identifier::parse_default("example").unwrap()),
-//!     function_type: Some(GraphicalFunctionType::Continuous),
-//!     data: GraphicalFunctionData::uniform_scale(
+//! let graphical_function = GraphicalFunction::new(
+//!     Some(Identifier::parse_default("example").unwrap()),
+//!     Some(GraphicalFunctionType::Continuous),
+//!     GraphicalFunctionData::uniform_scale(
 //!         (0.0, 3.0),
 //!         vec![0.0, 1.0, 2.0, 3.0],
 //!         Some((0.0, 3.0)),
 //!     ),
-//! };
+//! );
 //! analyse_container(&graphical_function);
 //! ```
 //!
