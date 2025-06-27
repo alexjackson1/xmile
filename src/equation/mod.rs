@@ -1,6 +1,7 @@
 pub mod expression;
 pub mod identifier;
 pub mod numeric;
+pub mod parse;
 pub mod units;
 pub mod utils;
 
