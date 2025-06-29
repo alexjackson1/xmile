@@ -1,5 +1,5 @@
 use crate::{
-    Expression, Identifier, Measure, UnitOfMeasure,
+    Expression, Identifier, Measure, UnitEquation,
     model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
 };
 
@@ -12,7 +12,7 @@ pub struct Auxiliary {
     pub equation: Expression,
     #[cfg(feature = "mathml")]
     pub mathml_equation: Option<String>,
-    pub units: Option<UnitOfMeasure>,
+    pub units: Option<UnitEquation>,
     pub range: Option<DeviceRange>,
     pub scale: Option<DeviceScale>,
     pub format: Option<FormatOptions>,
@@ -48,7 +48,7 @@ impl Object for Auxiliary {
 }
 
 impl Measure for Auxiliary {
-    fn units(&self) -> Option<&UnitOfMeasure> {
+    fn units(&self) -> Option<&UnitEquation> {
         self.units.as_ref()
     }
 }

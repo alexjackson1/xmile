@@ -1,5 +1,10 @@
+use std::fmt;
+
 use function::FunctionTarget;
 use operator::Operator;
+use serde::{Deserialize, Serialize};
+
+use crate::equation::parse::expression;
 
 use super::{Identifier, NumericConstant};
 
@@ -42,6 +47,106 @@ pub enum Expression {
 }
 
 impl Expression {
+    pub fn constant(value: NumericConstant) -> Self {
+        Expression::Constant(value)
+    }
+
+    pub fn subscript(identifier: Identifier, params: Vec<Expression>) -> Self {
+        Expression::Subscript(identifier, params)
+    }
+
+    pub fn parentheses(expr: Expression) -> Self {
+        Expression::Parentheses(Box::new(expr))
+    }
+
+    pub fn exponentiation(base: Expression, exponent: Expression) -> Self {
+        Expression::Exponentiation(Box::new(base), Box::new(exponent))
+    }
+
+    pub fn unary_plus(expr: Expression) -> Self {
+        Expression::UnaryPlus(Box::new(expr))
+    }
+
+    pub fn unary_minus(expr: Expression) -> Self {
+        Expression::UnaryMinus(Box::new(expr))
+    }
+
+    pub fn not(expr: Expression) -> Self {
+        Expression::Not(Box::new(expr))
+    }
+
+    pub fn multiply(lhs: Expression, rhs: Expression) -> Self {
+        Expression::Multiply(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn divide(lhs: Expression, rhs: Expression) -> Self {
+        Expression::Divide(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn modulo(lhs: Expression, rhs: Expression) -> Self {
+        Expression::Modulo(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn add(lhs: Expression, rhs: Expression) -> Self {
+        Expression::Add(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn subtract(lhs: Expression, rhs: Expression) -> Self {
+        Expression::Subtract(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn less_than(lhs: Expression, rhs: Expression) -> Self {
+        Expression::LessThan(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn less_than_or_eq(lhs: Expression, rhs: Expression) -> Self {
+        Expression::LessThanOrEq(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn greater_than(lhs: Expression, rhs: Expression) -> Self {
+        Expression::GreaterThan(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn greater_than_or_eq(lhs: Expression, rhs: Expression) -> Self {
+        Expression::GreaterThanOrEq(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn equal(lhs: Expression, rhs: Expression) -> Self {
+        Expression::Equal(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn not_equal(lhs: Expression, rhs: Expression) -> Self {
+        Expression::NotEqual(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn and(lhs: Expression, rhs: Expression) -> Self {
+        Expression::And(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn or(lhs: Expression, rhs: Expression) -> Self {
+        Expression::Or(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn function_call(target: FunctionTarget, parameters: Vec<Expression>) -> Self {
+        Expression::FunctionCall { target, parameters }
+    }
+
+    pub fn if_else(
+        condition: Expression,
+        then_branch: Expression,
+        else_branch: Expression,
+    ) -> Self {
+        Expression::IfElse {
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            else_branch: Box::new(else_branch),
+        }
+    }
+
+    pub fn inline_comment(comment: String) -> Self {
+        Expression::InlineComment(comment)
+    }
+
     pub fn top_operator(&self) -> Option<operator::Operator> {
         match self {
             Expression::Subscript(_, _) => Some(Operator::Subscript),
@@ -127,6 +232,100 @@ impl Expression {
             Expression::InlineComment(_) => {}
             Expression::Constant(_) => {}
         }
+    }
+}
+
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expression::Constant(value) => write!(f, "{}", value),
+            Expression::Subscript(id, params) => {
+                write!(f, "{}[", id)?;
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", param)?;
+                }
+                write!(f, "]")
+            }
+            Expression::Parentheses(expr) => write!(f, "({})", expr),
+            Expression::Exponentiation(base, exponent) => write!(f, "{} ^ {}", base, exponent),
+            Expression::UnaryPlus(expr) => write!(f, "+{}", expr),
+            Expression::UnaryMinus(expr) => write!(f, "-{}", expr),
+            Expression::Not(expr) => write!(f, "NOT {}", expr),
+            Expression::Multiply(lhs, rhs) => write!(f, "{} * {}", lhs, rhs),
+            Expression::Divide(lhs, rhs) => write!(f, "{} / {}", lhs, rhs),
+            Expression::Modulo(lhs, rhs) => write!(f, "{} MOD {}", lhs, rhs),
+            Expression::Add(lhs, rhs) => write!(f, "{} + {}", lhs, rhs),
+            Expression::Subtract(lhs, rhs) => write!(f, "{} - {}", lhs, rhs),
+            Expression::LessThan(lhs, rhs) => write!(f, "{} < {}", lhs, rhs),
+            Expression::LessThanOrEq(lhs, rhs) => write!(f, "{} <= {}", lhs, rhs),
+            Expression::GreaterThan(lhs, rhs) => write!(f, "{} > {}", lhs, rhs),
+            Expression::GreaterThanOrEq(lhs, rhs) => write!(f, "{} >= {}", lhs, rhs),
+            Expression::Equal(lhs, rhs) => write!(f, "{} = {}", lhs, rhs),
+            Expression::NotEqual(lhs, rhs) => write!(f, "{} <> {}", lhs, rhs),
+            Expression::And(lhs, rhs) => write!(f, "{} AND {}", lhs, rhs),
+            Expression::Or(lhs, rhs) => write!(f, "{} OR {}", lhs, rhs),
+            Expression::FunctionCall {
+                target: _,
+                parameters,
+            } => {
+                write!(f, "{}(", parameters[0])?;
+                for (i, param) in parameters.iter().enumerate().skip(1) {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", param)?;
+                }
+                write!(f, ")")
+            }
+            Expression::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+            } => write!(
+                f,
+                "IF {} THEN {} ELSE {}",
+                condition, then_branch, else_branch
+            ),
+            Expression::InlineComment(comment) => write!(f, "// {}", comment),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Expression {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as a string
+        let s: String = Deserialize::deserialize(deserializer)?;
+
+        // Parse the string into an Expression
+        let (output, expression) = expression(&s).map_err(serde::de::Error::custom)?;
+
+        // Ensure the entire string was consumed
+        if !output.is_empty() {
+            return Err(serde::de::Error::custom(format!(
+                "Unexpected trailing characters after expression: '{}'",
+                output
+            )));
+        }
+
+        // Return the parsed Expression
+        Ok(expression)
+    }
+}
+
+impl Serialize for Expression {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Serialize the Expression as a string
+        let expr_str = self.to_string();
+        serializer.serialize_str(&expr_str)
     }
 }
 

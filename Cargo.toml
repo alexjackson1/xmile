@@ -31,6 +31,7 @@ icu_casemap = "1.4"
 icu_normalizer = "1.4"
 icu_collator = "1.4"
 serde-xml-rs = "0.8.1"
+nom = "8.0.0"
 
 
 [dev-dependencies]

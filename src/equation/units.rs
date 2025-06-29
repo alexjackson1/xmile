@@ -39,7 +39,9 @@
 
 use std::{cmp::Ordering, fmt};
 
-use crate::Identifier;
+use serde::{Deserialize, Serialize};
+
+use crate::{Identifier, equation::parse::unit_equation};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum UnitEquation {
@@ -49,6 +51,41 @@ pub enum UnitEquation {
     Multiplication(Box<UnitEquation>, Box<UnitEquation>),
     Division(Box<UnitEquation>, Box<UnitEquation>),
     Parentheses(Box<UnitEquation>),
+}
+
+impl<'de> Deserialize<'de> for UnitEquation {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as a string
+        let s: String = Deserialize::deserialize(deserializer)?;
+
+        // Parse the string into an unit equation
+        let (output, equation) = unit_equation(&s).map_err(serde::de::Error::custom)?;
+
+        // Ensure the entire string was consumed
+        if !output.is_empty() {
+            return Err(serde::de::Error::custom(format!(
+                "Unexpected trailing characters after equation: '{}'",
+                output
+            )));
+        }
+
+        // Return the parsed equation
+        Ok(equation)
+    }
+}
+
+impl Serialize for UnitEquation {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Serialize the unit equation as a string
+        let expr_str = self.to_string();
+        serializer.serialize_str(&expr_str)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -84,7 +121,7 @@ impl Ord for UnitOfMeasure {
 }
 
 pub trait Measure {
-    fn units(&self) -> Option<&UnitOfMeasure>;
+    fn units(&self) -> Option<&UnitEquation>;
 }
 
 pub mod baseline {

@@ -1,5 +1,5 @@
 use crate::{
-    Expression, Identifier, Measure, UnitOfMeasure,
+    Expression, Identifier, Measure, UnitEquation,
     model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
 };
 
@@ -44,7 +44,7 @@ pub struct BasicStock {
     pub initial_equation: Expression,
 
     /// The units of measure for the stock variable.
-    pub units: Option<UnitOfMeasure>,
+    pub units: Option<UnitEquation>,
 
     /// The documentation for the stock variable.
     pub documentation: Option<Documentation>,
@@ -109,7 +109,7 @@ impl Document for BasicStock {
 }
 
 impl Measure for BasicStock {
-    fn units(&self) -> Option<&UnitOfMeasure> {
+    fn units(&self) -> Option<&UnitEquation> {
         self.units.as_ref()
     }
 }
@@ -159,7 +159,7 @@ pub struct ConveyorStock {
     pub exponential_leakage: Option<bool>,
 
     /// The units of measure for the conveyor.
-    pub units: Option<UnitOfMeasure>,
+    pub units: Option<UnitEquation>,
 
     /// The documentation for the conveyor.
     pub documentation: Option<Documentation>,
@@ -224,7 +224,7 @@ impl Document for ConveyorStock {
 }
 
 impl Measure for ConveyorStock {
-    fn units(&self) -> Option<&UnitOfMeasure> {
+    fn units(&self) -> Option<&UnitEquation> {
         self.units.as_ref()
     }
 }
@@ -247,7 +247,7 @@ pub struct QueueStock {
     pub initial_equation: Expression,
 
     /// The units of measure for the queue variable.
-    pub units: Option<UnitOfMeasure>,
+    pub units: Option<UnitEquation>,
 
     /// The documentation for the queue variable.
     pub documentation: Option<Documentation>,
@@ -312,7 +312,7 @@ impl Document for QueueStock {
 }
 
 impl Measure for QueueStock {
-    fn units(&self) -> Option<&UnitOfMeasure> {
+    fn units(&self) -> Option<&UnitEquation> {
         self.units.as_ref()
     }
 }

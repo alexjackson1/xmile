@@ -1,5 +1,5 @@
 use crate::{
-    Expression, Identifier, Measure, UnitOfMeasure,
+    Expression, Identifier, Measure, UnitEquation,
     model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
 };
 
@@ -10,7 +10,7 @@ pub struct Flow {
     pub name: Identifier,
     pub equation: Expression,
     pub mathml_equation: Option<String>,
-    pub units: Option<UnitOfMeasure>,
+    pub units: Option<UnitEquation>,
     pub documentation: Option<Documentation>,
     pub range: Option<DeviceRange>,
     pub scale: Option<DeviceScale>,
@@ -47,7 +47,7 @@ impl Object for Flow {
 }
 
 impl Measure for Flow {
-    fn units(&self) -> Option<&UnitOfMeasure> {
+    fn units(&self) -> Option<&UnitEquation> {
         self.units.as_ref()
     }
 }

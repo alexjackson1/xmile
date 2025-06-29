@@ -38,7 +38,7 @@ use std::{
 };
 
 use crate::{
-    Expression, Identifier, Measure, UnitOfMeasure,
+    Expression, Identifier, Measure, UnitEquation,
     containers::{Container, ContainerMut},
     equation::IdentifierError,
     model::{
@@ -95,11 +95,10 @@ pub struct GraphicalFunction {
     pub equation: Option<Expression>,
 
     /// Optional MathML representation of the equation
-    #[cfg(feature = "mathml")]
     pub mathml_equation: Option<String>,
 
     /// Optional units of measure for this graphical function
-    pub units: Option<UnitOfMeasure>,
+    pub units: Option<UnitEquation>,
 
     /// Optional documentation for this graphical function
     pub documentation: Option<Documentation>,
@@ -134,7 +133,6 @@ impl GraphicalFunction {
             r#type,
             data,
             equation: None,
-            #[cfg(feature = "mathml")]
             mathml_equation: None,
             units: None,
             documentation: None,
@@ -158,7 +156,6 @@ impl GraphicalFunction {
             r#type: Some(GraphicalFunctionType::Continuous),
             data,
             equation: None,
-            #[cfg(feature = "mathml")]
             mathml_equation: None,
             units: None,
             documentation: None,
@@ -182,7 +179,6 @@ impl GraphicalFunction {
             r#type: Some(GraphicalFunctionType::Discrete),
             data,
             equation: None,
-            #[cfg(feature = "mathml")]
             mathml_equation: None,
             units: None,
             documentation: None,
@@ -206,7 +202,6 @@ impl GraphicalFunction {
             r#type: Some(GraphicalFunctionType::Extrapolate),
             data,
             equation: None,
-            #[cfg(feature = "mathml")]
             mathml_equation: None,
             units: None,
             documentation: None,
@@ -223,7 +218,7 @@ impl GraphicalFunction {
     }
 
     /// Sets the units of measure for this graphical function and returns it.
-    pub fn with_units(mut self, units: UnitOfMeasure) -> Self {
+    pub fn with_units(mut self, units: UnitEquation) -> Self {
         self.units = Some(units);
         self
     }
@@ -334,7 +329,7 @@ impl Measure for GraphicalFunction {
     ///
     /// # Returns
     /// An optional reference to the units of measure.
-    fn units(&self) -> Option<&crate::UnitOfMeasure> {
+    fn units(&self) -> Option<&crate::UnitEquation> {
         None // No units field in GraphicalFunction
     }
 }
@@ -480,6 +475,12 @@ struct RawGraphicalFunction {
     name: Option<String>,
     #[serde(rename = "@type")]
     r#type: Option<String>,
+    #[serde(rename = "eqn")]
+    equation: Option<Expression>,
+    #[serde(rename = "mathml")]
+    mathml_equation: Option<String>,
+    #[serde(rename = "units")]
+    units: Option<UnitEquation>,
     // serde-xml-rs doesn't support flattening the below enum directly,
     // so we deserialize it as additional fields
     #[serde(rename = "xscale")]
@@ -549,10 +550,23 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
             })
             .transpose()?;
 
+        // Get the equation if present
+        // todo cloning
+        let equation = raw.equation.clone();
+        let mathml_equation = raw.mathml_equation.clone();
+
+        // Get the units of measure if present
+        let units = (&raw.units).as_ref().map(|u| u.clone());
+
         // Convert raw data into GraphicalFunctionData
         let data = Into::<RawGraphicalFunctionData>::into(raw).try_into()?;
 
-        Ok(GraphicalFunction::new(name, r#type, data))
+        let mut gf = GraphicalFunction::new(name, r#type, data);
+        gf.equation = equation;
+        gf.mathml_equation = mathml_equation;
+        gf.units = units;
+
+        Ok(gf)
     }
 }
 
@@ -591,6 +605,9 @@ impl Serialize for GraphicalFunction {
         let raw = RawGraphicalFunction {
             name: self.name.as_ref().map(|n| n.to_string()),
             r#type: Some(self.function_type().to_string()),
+            equation: self.equation.clone(),
+            mathml_equation: self.mathml_equation.clone(),
+            units: self.units.clone(),
             x_scale: match &self.data {
                 GraphicalFunctionData::UniformScale { x_scale, .. } => Some(*x_scale),
                 GraphicalFunctionData::XYPairs { .. } => None,
@@ -2324,6 +2341,80 @@ mod tests {
 
                 let result: Result<GraphicalFunction, _> = serde_xml_rs::from_str(xml);
                 assert!(result.is_err());
+            }
+        }
+
+        mod additional_properties {
+            use super::*;
+
+            #[cfg(feature = "full")]
+            #[test]
+            fn all_additional() {
+                use crate::{Expression, NumericConstant};
+
+                let xml = r#"<gf name="additional_properties" type="continuous">
+                <!-- Data -->
+                <xscale min="0" max="1"/>
+                <yscale min="-1" max="2"/>
+                <ypts>0,0.5,1</ypts>
+                <!-- Additional properties -->
+                <eqn>x^2 + 2 * x + 4</eqn>
+                <mathml>x^2 + 2x + 4</mathml>
+                <units>unitless</units>
+                <doc>This is a test function with additional properties.</doc>
+                <range>0,1</range>
+                <scale>1.0</scale>
+                <format>percentage</format>
+            </gf>"#;
+                let function: GraphicalFunction = serde_xml_rs::from_str(xml).unwrap();
+                println!("{:#?}", function);
+
+                assert_eq!(
+                    function.name,
+                    Some(Identifier::parse_default("additional_properties").unwrap())
+                );
+                assert_eq!(function.r#type, Some(GraphicalFunctionType::Continuous));
+
+                match function.data {
+                    GraphicalFunctionData::UniformScale {
+                        x_scale,
+                        y_values,
+                        y_scale,
+                    } => {
+                        assert_eq!(x_scale.min, 0.0);
+                        assert_eq!(x_scale.max, 1.0);
+                        assert_eq!(y_values.values, vec![0.0, 0.5, 1.0]);
+                        assert_eq!(y_scale.unwrap().min, -1.0);
+                        assert_eq!(y_scale.unwrap().max, 2.0);
+                    }
+                    _ => panic!("Expected UniformScale variant"),
+                }
+
+                let expected_equation = Expression::add(
+                    Expression::add(
+                        Expression::exponentiation(
+                            Expression::subscript(Identifier::parse_default("x").unwrap(), vec![]),
+                            Expression::constant(NumericConstant::from(2.0)),
+                        ),
+                        Expression::multiply(
+                            Expression::constant(NumericConstant::from(2.0)),
+                            Expression::subscript(Identifier::parse_default("x").unwrap(), vec![]),
+                        ),
+                    ),
+                    Expression::constant(NumericConstant::from(4.0)),
+                );
+
+                // Additional properties
+                assert_eq!(function.equation, Some(expected_equation));
+                assert_eq!(function.mathml_equation, Some("x^2 + 2x + 4".to_string()));
+                // assert_eq!(function.units, Some("unitless".to_string()));
+                // assert_eq!(
+                //     function.documentation,
+                //     Some("This is a test function with additional properties.".to_string())
+                // );
+                // assert_eq!(function.range, Some((0.0, 1.0)));
+                // assert_eq!(function.scale, Some(1.0));
+                // assert_eq!(function.format, Some("percentage".to_string()));
             }
         }
 
