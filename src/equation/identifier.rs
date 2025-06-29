@@ -280,6 +280,16 @@ impl Identifier {
         Self::parse(input, IdentifierOptions::units_of_measure())
     }
 
+    /// Parses a quoted identifier from a string.
+    pub fn parse_from_attribute(input: &str) -> Result<Self, IdentifierError> {
+        println!("Parsing identifier from attribute: {}", input);
+        let input = format!("\"{}\"", input.trim_matches('"'));
+        println!("Quoted identifier input: {}", input);
+
+        // Ensure the input is properly quoted
+        Identifier::parse_default(&input)
+    }
+
     /// Returns the raw identifier string as originally provided.
     ///
     /// This preserves the exact input including quotes, case, and whitespace.
@@ -872,7 +882,7 @@ impl<'de> Deserialize<'de> for Identifier {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Identifier::from_str(&s).map_err(serde::de::Error::custom)
+        Identifier::parse_from_attribute(&s).map_err(serde::de::Error::custom)
     }
 }
 

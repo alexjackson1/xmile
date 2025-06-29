@@ -1,9 +1,19 @@
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
 use crate::{
     Expression, Identifier, Measure, UnitEquation,
     model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
+    types::{Validate, ValidationResult},
 };
 
 use super::Var;
+
+#[derive(Debug, Error)]
+pub enum StockConversionError {
+    #[error("Missing conveyor length in stock definition")]
+    MissingConveyorLength,
+}
 
 /// A trait representing a stock variable in a model.
 pub trait StockVar<'a>: Var<'a> + Object + Document + Measure {
@@ -28,6 +38,286 @@ pub enum Stock {
     Queue(QueueStock),
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct RawStock {
+    #[serde(rename = "@name")]
+    name: Identifier,
+
+    #[serde(rename = "inflow")]
+    #[serde(default)]
+    inflows: Vec<Identifier>,
+    #[serde(rename = "outflow")]
+    #[serde(default)]
+    outflows: Vec<Identifier>,
+
+    #[serde(rename = "eqn")]
+    initial_equation: Expression,
+
+    #[serde(rename = "non_negative")]
+    non_negative: Option<NonNegativeContent>,
+
+    #[serde(rename = "conveyor")]
+    conveyor: Option<RawConveyor>,
+    #[serde(rename = "queue")]
+    queue: Option<RawQueue>,
+
+    #[serde(rename = "units")]
+    units: Option<UnitEquation>,
+
+    #[serde(rename = "doc")]
+    documentation: Option<Documentation>,
+
+    #[serde(rename = "range")]
+    range: Option<DeviceRange>,
+    #[serde(rename = "scale")]
+    scale: Option<DeviceScale>,
+    #[serde(rename = "format")]
+    format: Option<FormatOptions>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+struct NonNegativeContent {
+    #[serde(rename = "#text")]
+    value: Option<bool>,
+}
+
+impl From<NonNegativeContent> for bool {
+    fn from(content: NonNegativeContent) -> Self {
+        content.value.unwrap_or(true)
+    }
+}
+
+impl From<NonNegativeContent> for Option<bool> {
+    fn from(content: NonNegativeContent) -> Self {
+        content.value
+    }
+}
+
+impl From<NonNegativeContent> for Option<Option<bool>> {
+    fn from(content: NonNegativeContent) -> Self {
+        Some(content.value)
+    }
+}
+
+impl From<Option<bool>> for NonNegativeContent {
+    fn from(value: Option<bool>) -> Self {
+        NonNegativeContent { value }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct RawConveyor {
+    // Conveyor-specific fields
+    #[serde(rename = "len")]
+    length: Option<Expression>, // required for conveyor stocks
+    #[serde(rename = "capacity")]
+    capacity: Option<Expression>,
+    #[serde(rename = "in_limit")]
+    inflow_limit: Option<Expression>,
+    #[serde(rename = "sample")]
+    sample: Option<Expression>,
+    #[serde(rename = "arrest")]
+    arrest_value: Option<Expression>,
+    #[serde(rename = "@discrete")]
+    discrete: Option<bool>,
+    #[serde(rename = "@batch_integrity")]
+    batch_integrity: Option<bool>,
+    #[serde(rename = "@one_at_a_time")]
+    one_at_a_time: Option<bool>,
+    #[serde(rename = "@exponential_leak")]
+    exponential_leakage: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct RawQueue;
+
+enum StockKind {
+    Normal,
+    Conveyor,
+    Queue,
+    NonNegative,
+}
+
+impl RawStock {
+    fn stock_kind(&self) -> Result<StockKind, ()> {
+        if self.is_conveyor() {
+            Ok(StockKind::Conveyor)
+        } else if self.is_queue() {
+            Ok(StockKind::Queue)
+        } else if self.is_non_negative() {
+            Ok(StockKind::NonNegative)
+        } else if self.is_normal() {
+            Ok(StockKind::Normal)
+        } else {
+            Err(())
+        }
+    }
+
+    fn is_conveyor(&self) -> bool {
+        self.conveyor.is_some()
+    }
+
+    fn is_queue(&self) -> bool {
+        self.queue.is_some()
+    }
+
+    fn is_non_negative(&self) -> bool {
+        self.non_negative.map(Into::into).unwrap_or(false)
+    }
+
+    fn is_normal(&self) -> bool {
+        !self.is_conveyor() && !self.is_queue() && !self.is_non_negative()
+    }
+}
+
+impl Validate for RawStock {
+    fn validate(&self) -> ValidationResult {
+        let mut errors = Vec::new();
+        let warnings = Vec::new();
+
+        if self.is_conveyor() && (self.is_non_negative() || self.is_queue()) {
+            errors
+                .push("A stock cannot be both a conveyor and non-negative or a queue.".to_string());
+        }
+
+        if self.is_queue() && (self.is_non_negative() || self.is_conveyor()) {
+            errors
+                .push("A stock cannot be both a queue and non-negative or a conveyor.".to_string());
+        }
+
+        if self.is_non_negative() && (self.is_conveyor() || self.is_queue()) {
+            errors
+                .push("A stock cannot be both non-negative and a conveyor or a queue.".to_string());
+        }
+
+        if errors.is_empty() {
+            ValidationResult::Valid(())
+        } else {
+            ValidationResult::Invalid(errors, warnings)
+        }
+    }
+}
+
+impl From<BasicStock> for RawStock {
+    fn from(stock: BasicStock) -> Self {
+        RawStock {
+            name: stock.name,
+            inflows: stock.inflows,
+            outflows: stock.outflows,
+            initial_equation: stock.initial_equation,
+            non_negative: stock.non_negative.map(Into::into),
+            units: stock.units,
+            documentation: stock.documentation,
+            range: stock.range,
+            scale: stock.scale,
+            format: stock.format,
+            conveyor: None,
+            queue: None,
+        }
+    }
+}
+
+impl From<ConveyorStock> for RawStock {
+    fn from(stock: ConveyorStock) -> Self {
+        RawStock {
+            name: stock.name,
+            inflows: stock.inflows,
+            outflows: stock.outflows,
+            initial_equation: stock.initial_equation,
+            non_negative: None, // Conveyors are not marked as non-negative
+            units: stock.units,
+            documentation: stock.documentation,
+            range: stock.range,
+            scale: stock.scale,
+            format: stock.format,
+            conveyor: Some(RawConveyor {
+                length: Some(stock.length),
+                capacity: stock.capacity,
+                inflow_limit: stock.inflow_limit,
+                sample: stock.sample,
+                arrest_value: stock.arrest_value,
+                discrete: stock.discrete,
+                batch_integrity: stock.batch_integrity,
+                one_at_a_time: stock.one_at_a_time,
+                exponential_leakage: stock.exponential_leakage,
+            }),
+            queue: None, // Conveyors are not queues
+        }
+    }
+}
+
+impl From<QueueStock> for RawStock {
+    fn from(stock: QueueStock) -> Self {
+        RawStock {
+            name: stock.name,
+            inflows: stock.inflows,
+            outflows: stock.outflows,
+            initial_equation: stock.initial_equation,
+            non_negative: None, // Queues are not marked as non-negative
+            units: stock.units,
+            documentation: stock.documentation,
+            range: stock.range,
+            scale: stock.scale,
+            format: stock.format,
+            conveyor: None, // Queues are not conveyors
+            queue: Some(RawQueue),
+        }
+    }
+}
+
+impl From<Stock> for RawStock {
+    fn from(stock: Stock) -> Self {
+        match stock {
+            Stock::Basic(basic) => RawStock::from(basic),
+            Stock::Conveyor(conveyor) => RawStock::from(conveyor),
+            Stock::Queue(queue) => RawStock::from(queue),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Stock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw_stock = RawStock::deserialize(deserializer)?;
+        raw_stock.validate().ok().map_err(|err| {
+            let bullets = err
+                .iter()
+                .map(|e| format!("- {}", e))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            serde::de::Error::custom(format!("Invalid stock definition:\n{}", bullets))
+        })?;
+
+        let stock_kind = raw_stock.stock_kind().map_err(|_| {
+            serde::de::Error::custom(
+                "Stock must be either a conveyor, queue, non-negative, or normal stock",
+            )
+        })?;
+
+        match stock_kind {
+            StockKind::Normal => Ok(Stock::Basic(BasicStock::from(raw_stock))),
+            StockKind::NonNegative => Ok(Stock::Basic(BasicStock::from(raw_stock))),
+            StockKind::Conveyor => Ok(Stock::Conveyor(
+                ConveyorStock::try_from(raw_stock).map_err(serde::de::Error::custom)?,
+            )),
+            StockKind::Queue => Ok(Stock::Queue(QueueStock::from(raw_stock))),
+        }
+    }
+}
+
+impl Serialize for Stock {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let raw_stock: RawStock = self.clone().into();
+        raw_stock.serialize(serializer)
+    }
+}
+
 /// A basic stock variable with inflows, outflows, and an initial value equation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BasicStock {
@@ -42,6 +332,9 @@ pub struct BasicStock {
 
     /// The equation defining the stock's initial value.
     pub initial_equation: Expression,
+
+    /// Whether the stock is non-negative.
+    pub non_negative: Option<Option<bool>>,
 
     /// The units of measure for the stock variable.
     pub units: Option<UnitEquation>,
@@ -114,6 +407,23 @@ impl Measure for BasicStock {
     }
 }
 
+impl From<RawStock> for BasicStock {
+    fn from(raw: RawStock) -> Self {
+        BasicStock {
+            name: raw.name,
+            inflows: raw.inflows,
+            outflows: raw.outflows,
+            initial_equation: raw.initial_equation,
+            non_negative: raw.non_negative.map(|nn| nn.value.map(Into::into)),
+            units: raw.units,
+            documentation: raw.documentation,
+            range: raw.range,
+            scale: raw.scale,
+            format: raw.format,
+        }
+    }
+}
+
 impl BasicStock {}
 
 /// A conveyor stock with inflows, outflows, and an initial value equation.
@@ -153,7 +463,7 @@ pub struct ConveyorStock {
     pub batch_integrity: Option<bool>,
 
     /// Number of batches able to be taken from an upstream queue (if applicable).
-    pub number_of_batches: Option<u32>,
+    pub one_at_a_time: Option<bool>,
 
     /// True if exponential leakage should exponentially decay across the conveyor.
     pub exponential_leakage: Option<bool>,
@@ -226,6 +536,37 @@ impl Document for ConveyorStock {
 impl Measure for ConveyorStock {
     fn units(&self) -> Option<&UnitEquation> {
         self.units.as_ref()
+    }
+}
+
+impl TryFrom<RawStock> for ConveyorStock {
+    type Error = StockConversionError;
+
+    fn try_from(raw: RawStock) -> Result<Self, Self::Error> {
+        Ok(ConveyorStock {
+            name: raw.name,
+            inflows: raw.inflows,
+            outflows: raw.outflows,
+            initial_equation: raw.initial_equation,
+            length: raw
+                .conveyor
+                .as_ref()
+                .and_then(|c| c.length.clone())
+                .ok_or(StockConversionError::MissingConveyorLength)?,
+            capacity: raw.conveyor.as_ref().and_then(|c| c.capacity.clone()),
+            inflow_limit: raw.conveyor.as_ref().and_then(|c| c.inflow_limit.clone()),
+            sample: raw.conveyor.as_ref().and_then(|c| c.sample.clone()),
+            arrest_value: raw.conveyor.as_ref().and_then(|c| c.arrest_value.clone()),
+            discrete: raw.conveyor.as_ref().and_then(|c| c.discrete),
+            batch_integrity: raw.conveyor.as_ref().and_then(|c| c.batch_integrity),
+            one_at_a_time: raw.conveyor.as_ref().and_then(|c| c.one_at_a_time),
+            exponential_leakage: raw.conveyor.as_ref().and_then(|c| c.exponential_leakage),
+            units: raw.units,
+            documentation: raw.documentation,
+            range: raw.range,
+            scale: raw.scale,
+            format: raw.format,
+        })
     }
 }
 
@@ -317,4 +658,439 @@ impl Measure for QueueStock {
     }
 }
 
+impl From<RawStock> for QueueStock {
+    fn from(raw: RawStock) -> Self {
+        QueueStock {
+            name: raw.name,
+            inflows: raw.inflows,
+            outflows: raw.outflows,
+            initial_equation: raw.initial_equation,
+            units: raw.units,
+            documentation: raw.documentation,
+            range: raw.range,
+            scale: raw.scale,
+            format: raw.format,
+        }
+    }
+}
+
 impl QueueStock {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_xml_rs::from_str;
+
+    #[test]
+    fn test_basic_stock() {
+        let xml = r#"
+        <stock name="Motivation">
+            <eqn>100</eqn>
+            <inflow>increasing</inflow>
+            <outflow>decreasing</outflow>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse basic stock");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Motivation");
+                assert_eq!(
+                    basic_stock.inflows,
+                    vec![Identifier::parse_default("increasing").expect("valid identifier")]
+                );
+                assert_eq!(
+                    basic_stock.outflows,
+                    vec![Identifier::parse_default("decreasing").expect("valid identifier")]
+                );
+                // Note: We'd need to check the expression parsing here
+                assert!(basic_stock.non_negative.is_none());
+            }
+            _ => panic!("Expected BasicStock, got {:?}", stock),
+        }
+    }
+
+    #[test]
+    fn test_stock_with_multiple_inflows_outflows() {
+        let xml = r#"
+        <stock name="Population">
+            <eqn>1000</eqn>
+            <inflow>births</inflow>
+            <inflow>immigration</inflow>
+            <outflow>deaths</outflow>
+            <outflow>emigration</outflow>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock with multiple flows");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Population");
+                assert_eq!(basic_stock.inflows.len(), 2);
+                assert_eq!(
+                    basic_stock.inflows[0],
+                    Identifier::parse_default("births").expect("valid identifier")
+                );
+                assert_eq!(
+                    basic_stock.inflows[1],
+                    Identifier::parse_default("immigration").expect("valid identifier")
+                );
+                assert_eq!(basic_stock.outflows.len(), 2);
+                assert_eq!(
+                    basic_stock.outflows[0],
+                    Identifier::parse_default("deaths").expect("valid identifier")
+                );
+                assert_eq!(
+                    basic_stock.outflows[1],
+                    Identifier::parse_default("emigration").expect("valid identifier")
+                );
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_stock_no_flows() {
+        let xml = r#"
+        <stock name="Constants">
+            <eqn>42</eqn>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock without flows");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Constants");
+                assert!(basic_stock.inflows.is_empty());
+                assert!(basic_stock.outflows.is_empty());
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_stock_with_non_negative() {
+        let xml = r#"
+        <stock name="Inventory">
+            <eqn>50</eqn>
+            <inflow>production</inflow>
+            <outflow>sales</outflow>
+            <non_negative />
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse non-negative stock");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Inventory");
+                assert_eq!(basic_stock.non_negative, Some(None));
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_stock_with_non_negative_true() {
+        let xml = r#"
+        <stock name="Inventory">
+            <eqn>50</eqn>
+            <inflow>production</inflow>
+            <outflow>sales</outflow>
+            <non_negative>true</non_negative>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse non-negative stock");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Inventory");
+                assert_eq!(basic_stock.non_negative, Some(Some(true)));
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_stock_with_non_negative_false() {
+        let xml = r#"
+        <stock name="Balance">
+            <eqn>0</eqn>
+            <inflow>deposits</inflow>
+            <outflow>withdrawals</outflow>
+            <non_negative>false</non_negative>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock with non_negative=false");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Balance");
+                assert_eq!(basic_stock.non_negative, Some(Some(false)));
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_conveyor_stock_basic() {
+        let xml = r#"
+        <stock name="Students">
+            <eqn>1000</eqn>
+            <inflow>matriculating</inflow>
+            <outflow>graduating</outflow>
+            <conveyor>
+                <len>4</len>
+                <capacity>1200</capacity>
+            </conveyor>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse conveyor stock");
+
+        match stock {
+            Stock::Conveyor(conveyor_stock) => {
+                assert_eq!(conveyor_stock.name, "Students");
+                assert_eq!(
+                    conveyor_stock.inflows,
+                    vec![Identifier::parse_default("matriculating").expect("valid identifier")]
+                );
+                assert_eq!(
+                    conveyor_stock.outflows,
+                    vec![Identifier::parse_default("graduating").expect("valid identifier")]
+                );
+                // The length and capacity would be Expression types that we'd need to verify
+                assert!(conveyor_stock.capacity.is_some());
+                assert!(conveyor_stock.inflow_limit.is_none()); // Should default to None
+                assert_eq!(conveyor_stock.discrete, None); // Should default to None (false)
+            }
+            _ => panic!("Expected ConveyorStock, got {:?}", stock),
+        }
+    }
+
+    #[test]
+    fn test_conveyor_stock_with_all_options() {
+        let xml = r#"
+        <stock name="ProductionLine">
+            <eqn>500</eqn>
+            <inflow>input_flow</inflow>
+            <outflow>output_flow</outflow>
+            <outflow>leakage_flow</outflow>
+            <conveyor discrete="true" batch_integrity="true" one_at_a_time="false" exponential_leak="true">
+                <len>8</len>
+                <capacity>2000</capacity>
+                <in_limit>100</in_limit>
+                <sample>TIME > 5</sample>
+                <arrest>emergency_stop</arrest>
+            </conveyor>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse conveyor with all options");
+
+        match stock {
+            Stock::Conveyor(conveyor_stock) => {
+                assert_eq!(conveyor_stock.name, "ProductionLine");
+                assert_eq!(conveyor_stock.outflows.len(), 2);
+                assert_eq!(conveyor_stock.discrete, Some(true));
+                assert_eq!(conveyor_stock.batch_integrity, Some(true));
+                assert_eq!(conveyor_stock.one_at_a_time, Some(false));
+                assert_eq!(conveyor_stock.exponential_leakage, Some(true));
+                assert!(conveyor_stock.capacity.is_some());
+                assert!(conveyor_stock.inflow_limit.is_some());
+                assert!(conveyor_stock.sample.is_some());
+                assert!(conveyor_stock.arrest_value.is_some());
+            }
+            _ => panic!("Expected ConveyorStock"),
+        }
+    }
+
+    #[test]
+    fn test_queue_stock() {
+        let xml = r#"
+        <stock name="WaitingLine">
+            <eqn>0</eqn>
+            <inflow>arrivals</inflow>
+            <outflow>service</outflow>
+            <queue/>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse queue stock");
+
+        match stock {
+            Stock::Queue(queue_stock) => {
+                assert_eq!(queue_stock.name, "WaitingLine");
+                assert_eq!(
+                    queue_stock.inflows,
+                    vec![Identifier::parse_default("arrivals").expect("valid identifier")]
+                );
+                assert_eq!(
+                    queue_stock.outflows,
+                    vec![Identifier::parse_default("service").expect("valid identifier")]
+                );
+            }
+            _ => panic!("Expected QueueStock, got {:?}", stock),
+        }
+    }
+
+    #[test]
+    fn test_stock_with_units_and_documentation() {
+        let xml = r#"
+        <stock name="Money">
+            <eqn>1000</eqn>
+            <inflow>income</inflow>
+            <outflow>expenses</outflow>
+            <units>dollars</units>
+            <doc>This represents the amount of money in the account</doc>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock with units and docs");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Money");
+                assert!(basic_stock.units.is_some());
+                assert!(basic_stock.documentation.is_some());
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_stock_with_display_properties() {
+        let xml = r#"
+        <stock name="Temperature">
+            <eqn>20</eqn>
+            <inflow>heating</inflow>
+            <outflow>cooling</outflow>
+            <range min="0" max="100"/>
+            <scale min="0" max="100"/>
+            <format precision="0.1" scale_by="1" display_as="number" delimit_000s="false"/>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock with display properties");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Temperature");
+                assert!(basic_stock.range.is_some());
+                assert!(basic_stock.scale.is_some());
+                assert!(basic_stock.format.is_some());
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_stock_both_conveyor_and_queue() {
+        let xml = r#"
+        <stock name="Invalid">
+            <eqn>100</eqn>
+            <conveyor>
+                <len>4</len>
+            </conveyor>
+            <queue/>
+        </stock>
+        "#;
+
+        // This should fail validation according to the spec
+        let result = from_str::<Stock>(xml);
+        // The exact behavior depends on implementation - it might parse but fail validation
+        // or fail to parse entirely. We should test both scenarios.
+
+        if let Ok(stock) = result {
+            // If it parses, it should fail validation
+            let raw_stock: RawStock = stock.into();
+            let validation_result = raw_stock.validate();
+            assert!(
+                validation_result.is_invalid(),
+                "Stock with both conveyor and queue should fail validation"
+            );
+        }
+        // If it fails to parse, that's also acceptable behavior
+    }
+
+    #[test]
+    fn test_conveyor_missing_required_length() {
+        let xml = r#"
+        <stock name="BrokenConveyor">
+            <eqn>100</eqn>
+            <inflow>input</inflow>
+            <outflow>output</outflow>
+            <conveyor>
+                <capacity>1000</capacity>
+            </conveyor>
+        </stock>
+        "#;
+
+        // This should fail because length is required for conveyors
+        let result = std::panic::catch_unwind(|| {
+            let stock: Stock = from_str(xml).expect("Should fail to parse conveyor without length");
+
+            // If parsing succeeds, conversion to ConveyorStock should fail
+            if let Stock::Conveyor(_) = stock {
+                panic!("ConveyorStock creation should fail without length");
+            }
+        });
+
+        assert!(result.is_err(), "Conveyor without length should fail");
+    }
+
+    #[test]
+    fn test_stock_name_with_quotes() {
+        let xml = r#"
+        <stock name="Complex Name With Spaces">
+            <eqn>100</eqn>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock with complex name");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "Complex Name With Spaces");
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_conveyor_with_minimal_config() {
+        let xml = r#"
+        <stock name="SimpleConveyor">
+            <eqn>0</eqn>
+            <inflow>input</inflow>
+            <outflow>output</outflow>
+            <conveyor>
+                <len>2.5</len>
+            </conveyor>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse minimal conveyor");
+
+        match stock {
+            Stock::Conveyor(conveyor_stock) => {
+                assert_eq!(conveyor_stock.name, "SimpleConveyor");
+                // All optional fields should be None
+                assert!(conveyor_stock.capacity.is_none());
+                assert!(conveyor_stock.inflow_limit.is_none());
+                assert!(conveyor_stock.sample.is_none());
+                assert!(conveyor_stock.arrest_value.is_none());
+                assert_eq!(conveyor_stock.discrete, None);
+                assert_eq!(conveyor_stock.batch_integrity, None);
+                assert_eq!(conveyor_stock.one_at_a_time, None);
+                assert_eq!(conveyor_stock.exponential_leakage, None);
+            }
+            _ => panic!("Expected ConveyorStock"),
+        }
+    }
+}

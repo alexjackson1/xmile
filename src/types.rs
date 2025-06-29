@@ -135,6 +135,14 @@ impl<T, W, E: Debug> ValidationResult<T, W, E> {
             }
         }
     }
+
+    pub fn ok(self) -> Result<T, Vec<E>> {
+        match self {
+            ValidationResult::Valid(data) => Ok(data),
+            ValidationResult::Warnings(data, _) => Ok(data),
+            ValidationResult::Invalid(_, errors) => Err(errors),
+        }
+    }
 }
 
 pub trait Validate<T = (), W = String, E: Debug = String> {
