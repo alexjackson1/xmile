@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::types::{Validate, ValidationResult};
 
 // All XMILE objects MAY have explicit ranges and scales that are used by default in input and output devices, respectively. These same properties can appear within the input and output devices to override the entity’s setting for that device.
@@ -28,10 +30,18 @@ pub trait Object {
     fn format(&self) -> Option<&FormatOptions>;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceRange {
+    #[serde(rename = "@min")]
     pub min: f64,
+    #[serde(rename = "@max")]
     pub max: f64,
+}
+
+impl DeviceRange {
+    pub fn new(min: f64, max: f64) -> Self {
+        DeviceRange { min, max }
+    }
 }
 
 impl Validate for DeviceRange {
@@ -55,10 +65,13 @@ impl Validate for DeviceRange {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DisplayAs {
+    #[serde(rename = "number")]
     Number,
+    #[serde(rename = "currency")]
     Currency,
+    #[serde(rename = "percent")]
     Percent,
 }
 
@@ -66,14 +79,120 @@ pub enum DisplayAs {
 pub enum DeviceScale {
     MinMax { min: f64, max: f64 },
     Auto(bool),
-    Group(Option<u32>),
+    Group(u32),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+impl DeviceScale {
+    pub fn new(min: f64, max: f64) -> Self {
+        DeviceScale::MinMax { min, max }
+    }
+
+    pub fn auto(auto: bool) -> Self {
+        DeviceScale::Auto(auto)
+    }
+
+    pub fn group(group: u32) -> Self {
+        DeviceScale::Group(group)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct RawDeviceScale {
+    #[serde(rename = "@min")]
+    min: Option<f64>,
+    #[serde(rename = "@max")]
+    max: Option<f64>,
+    #[serde(rename = "@auto")]
+    auto: Option<bool>,
+    #[serde(rename = "@group")]
+    group: Option<u32>,
+}
+
+impl From<DeviceScale> for RawDeviceScale {
+    fn from(scale: DeviceScale) -> Self {
+        match scale {
+            DeviceScale::MinMax { min, max } => RawDeviceScale {
+                min: Some(min),
+                max: Some(max),
+                auto: None,
+                group: None,
+            },
+            DeviceScale::Auto(auto) => RawDeviceScale {
+                min: None,
+                max: None,
+                auto: Some(auto),
+                group: None,
+            },
+            DeviceScale::Group(group) => RawDeviceScale {
+                min: None,
+                max: None,
+                auto: None,
+                group: Some(group),
+            },
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DeviceScale {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw: RawDeviceScale = Deserialize::deserialize(deserializer)?;
+
+        if let Some(auto) = raw.auto {
+            if raw.min.is_some() || raw.max.is_some() || raw.group.is_some() {
+                return Err(serde::de::Error::custom(
+                    "DeviceScale: auto cannot be used with min, max, or group",
+                ));
+            }
+            return Ok(DeviceScale::Auto(auto));
+        }
+
+        if let Some(group) = raw.group {
+            if raw.min.is_some() || raw.max.is_some() || raw.auto.is_some() {
+                return Err(serde::de::Error::custom(
+                    "DeviceScale: group cannot be used with min, max, or auto",
+                ));
+            }
+            return Ok(DeviceScale::Group(group));
+        }
+
+        match (raw.min, raw.max) {
+            (Some(min), Some(max)) => {
+                if min > max {
+                    return Err(serde::de::Error::custom(
+                        "DeviceScale: min cannot be greater than max",
+                    ));
+                }
+                Ok(DeviceScale::MinMax { min, max })
+            }
+            _ => Err(serde::de::Error::custom(
+                "DeviceScale: must specify min and max, auto, or group",
+            )),
+        }
+    }
+}
+
+impl Serialize for DeviceScale {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let raw: RawDeviceScale = self.clone().into();
+        raw.serialize(serializer)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FormatOptions {
+    #[serde(rename = "@precision")]
     pub precision: Option<f64>,
+    #[serde(rename = "@scale_by")]
     pub scale_by: Option<f64>,
+    #[serde(rename = "@display_as")]
     pub display_as: Option<DisplayAs>,
+    #[serde(rename = "@delimit_000s")]
     pub delimit_000s: Option<bool>,
 }
 
@@ -106,6 +225,77 @@ impl Validate for FormatOptions {
 pub enum Documentation {
     PlainText(String),
     Html(String),
+}
+
+impl<'de> Deserialize<'de> for Documentation {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+
+        if is_html_content(&s) {
+            Ok(Documentation::Html(s))
+        } else {
+            Ok(Documentation::PlainText(s))
+        }
+    }
+}
+
+impl Serialize for Documentation {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Documentation::PlainText(text) => serializer.serialize_str(text),
+            Documentation::Html(html) => serializer.serialize_str(html),
+        }
+    }
+}
+
+fn is_html_content(s: &str) -> bool {
+    let trimmed = s.trim();
+
+    // Must contain angle brackets
+    if !trimmed.contains('<') || !trimmed.contains('>') {
+        return false;
+    }
+
+    // Common HTML patterns
+    let html_indicators = [
+        // Common HTML tags
+        "<p>",
+        "</p>",
+        "<div>",
+        "</div>",
+        "<span>",
+        "</span>",
+        "<br>",
+        "<br/>",
+        "<hr>",
+        "<hr/>",
+        "<strong>",
+        "</strong>",
+        "<em>",
+        "</em>",
+        "<a ",
+        "<img ",
+        "<h1>",
+        "<h2>",
+        "<h3>",
+        // HTML entities
+        "&lt;",
+        "&gt;",
+        "&amp;",
+        "&quot;",
+        "&nbsp;",
+    ];
+
+    let lower = trimmed.to_lowercase();
+    html_indicators
+        .iter()
+        .any(|&indicator| lower.contains(indicator))
 }
 
 pub trait Document {

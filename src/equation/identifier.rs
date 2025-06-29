@@ -72,6 +72,7 @@ use thiserror::Error;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::str::FromStr;
 
 use super::utils;
@@ -851,6 +852,19 @@ impl Hash for Identifier {
         self.namespace_path.hash(state);
     }
 }
+
+impl Deref for Identifier {
+    type Target = str;
+
+    /// Allows dereferencing to the raw identifier string.
+    ///
+    /// This provides a convenient way to access the identifier as a string
+    /// without needing to call `raw()` explicitly.
+    fn deref(&self) -> &Self::Target {
+        &self.raw
+    }
+}
+
 // Custom Deserialize implementation that uses FromStr
 impl<'de> Deserialize<'de> for Identifier {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

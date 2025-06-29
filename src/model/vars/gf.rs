@@ -481,6 +481,14 @@ struct RawGraphicalFunction {
     mathml_equation: Option<String>,
     #[serde(rename = "units")]
     units: Option<UnitEquation>,
+    #[serde(rename = "doc")]
+    documentation: Option<Documentation>,
+    #[serde(rename = "range")]
+    range: Option<DeviceRange>,
+    #[serde(rename = "scale")]
+    scale: Option<DeviceScale>,
+    #[serde(rename = "format")]
+    format: Option<FormatOptions>,
     // serde-xml-rs doesn't support flattening the below enum directly,
     // so we deserialize it as additional fields
     #[serde(rename = "xscale")]
@@ -554,9 +562,11 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
         // todo cloning
         let equation = raw.equation.clone();
         let mathml_equation = raw.mathml_equation.clone();
-
-        // Get the units of measure if present
-        let units = (&raw.units).as_ref().map(|u| u.clone());
+        let units = raw.units.clone();
+        let documentation = raw.documentation.clone();
+        let range = raw.range.clone();
+        let scale = raw.scale.clone();
+        let format = raw.format.clone();
 
         // Convert raw data into GraphicalFunctionData
         let data = Into::<RawGraphicalFunctionData>::into(raw).try_into()?;
@@ -565,8 +575,50 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
         gf.equation = equation;
         gf.mathml_equation = mathml_equation;
         gf.units = units;
+        gf.documentation = documentation;
+        gf.range = range;
+        gf.scale = scale;
+        gf.format = format;
 
         Ok(gf)
+    }
+}
+
+impl From<GraphicalFunction> for RawGraphicalFunction {
+    /// Converts a structured GraphicalFunction into raw XML representation.
+    fn from(gf: GraphicalFunction) -> Self {
+        let x_scale = match gf.data {
+            GraphicalFunctionData::UniformScale { x_scale, .. } => Some(x_scale),
+            GraphicalFunctionData::XYPairs { .. } => None,
+        };
+        let y_scale = match gf.data {
+            GraphicalFunctionData::UniformScale { y_scale, .. } => y_scale,
+            GraphicalFunctionData::XYPairs { y_scale, .. } => y_scale,
+        };
+        // TODO: Should be able to eliminate cloning here
+        let y_pts = match gf.data.clone() {
+            GraphicalFunctionData::UniformScale { y_values, .. } => Some(y_values),
+            GraphicalFunctionData::XYPairs { y_values, .. } => Some(y_values),
+        };
+        let x_pts = match gf.data {
+            GraphicalFunctionData::UniformScale { .. } => None,
+            GraphicalFunctionData::XYPairs { x_values, .. } => Some(x_values),
+        };
+        RawGraphicalFunction {
+            name: gf.name.as_ref().map(|n| n.to_string()),
+            r#type: gf.r#type.as_ref().map(|t| t.to_string()),
+            equation: gf.equation,
+            mathml_equation: gf.mathml_equation,
+            units: gf.units,
+            documentation: gf.documentation,
+            range: gf.range,
+            scale: gf.scale,
+            format: gf.format,
+            x_scale,
+            y_scale,
+            y_pts,
+            x_pts,
+        }
     }
 }
 
@@ -602,27 +654,8 @@ impl Serialize for GraphicalFunction {
     where
         S: Serializer,
     {
-        let raw = RawGraphicalFunction {
-            name: self.name.as_ref().map(|n| n.to_string()),
-            r#type: Some(self.function_type().to_string()),
-            equation: self.equation.clone(),
-            mathml_equation: self.mathml_equation.clone(),
-            units: self.units.clone(),
-            x_scale: match &self.data {
-                GraphicalFunctionData::UniformScale { x_scale, .. } => Some(*x_scale),
-                GraphicalFunctionData::XYPairs { .. } => None,
-            },
-            y_scale: self.data.y_scale(),
-            y_pts: match &self.data {
-                GraphicalFunctionData::UniformScale { y_values, .. } => Some(y_values.clone()),
-                GraphicalFunctionData::XYPairs { y_values, .. } => Some(y_values.clone()),
-            },
-            x_pts: match &self.data {
-                GraphicalFunctionData::UniformScale { .. } => None,
-                GraphicalFunctionData::XYPairs { x_values, .. } => Some(x_values.clone()),
-            },
-        };
-        raw.serialize(serializer)
+        // TODO: Should be able to eliminate cloning here
+        RawGraphicalFunction::from(self.clone()).serialize(serializer)
     }
 }
 
@@ -2350,7 +2383,12 @@ mod tests {
             #[cfg(feature = "full")]
             #[test]
             fn all_additional() {
-                use crate::{Expression, NumericConstant};
+                use crate::{
+                    Expression, NumericConstant, UnitEquation,
+                    model::object::{
+                        DeviceRange, DeviceScale, DisplayAs, Documentation, FormatOptions,
+                    },
+                };
 
                 let xml = r#"<gf name="additional_properties" type="continuous">
                 <!-- Data -->
@@ -2360,11 +2398,11 @@ mod tests {
                 <!-- Additional properties -->
                 <eqn>x^2 + 2 * x + 4</eqn>
                 <mathml>x^2 + 2x + 4</mathml>
-                <units>unitless</units>
+                <units>(people * research_output / time) / energy</units>
                 <doc>This is a test function with additional properties.</doc>
-                <range>0,1</range>
-                <scale>1.0</scale>
-                <format>percentage</format>
+                <range min="1" max="2" />
+                <scale min="1.0" max="2.0"></scale>
+                <format precision="0.01" scale_by="1000" display_as="percent" delimit_000s="true" />
             </gf>"#;
                 let function: GraphicalFunction = serde_xml_rs::from_str(xml).unwrap();
                 println!("{:#?}", function);
@@ -2404,17 +2442,44 @@ mod tests {
                     Expression::constant(NumericConstant::from(4.0)),
                 );
 
+                let expected_units = UnitEquation::division(
+                    UnitEquation::parentheses(UnitEquation::division(
+                        UnitEquation::multiplication(
+                            UnitEquation::Alias(
+                                Identifier::parse_unit_name("people").expect("valid unit"),
+                            ),
+                            UnitEquation::Alias(
+                                Identifier::parse_unit_name("research_output").expect("valid unit"),
+                            ),
+                        ),
+                        UnitEquation::Alias(
+                            Identifier::parse_unit_name("time").expect("valid unit"),
+                        ),
+                    )),
+                    UnitEquation::Alias(Identifier::parse_unit_name("energy").expect("valid unit")),
+                );
+
                 // Additional properties
                 assert_eq!(function.equation, Some(expected_equation));
                 assert_eq!(function.mathml_equation, Some("x^2 + 2x + 4".to_string()));
-                // assert_eq!(function.units, Some("unitless".to_string()));
-                // assert_eq!(
-                //     function.documentation,
-                //     Some("This is a test function with additional properties.".to_string())
-                // );
-                // assert_eq!(function.range, Some((0.0, 1.0)));
-                // assert_eq!(function.scale, Some(1.0));
-                // assert_eq!(function.format, Some("percentage".to_string()));
+                assert_eq!(function.units, Some(expected_units));
+                assert_eq!(
+                    function.documentation,
+                    Some(Documentation::PlainText(
+                        "This is a test function with additional properties.".to_string()
+                    ))
+                );
+                assert_eq!(function.range, Some(DeviceRange::new(1.0, 2.0)));
+                assert_eq!(function.scale, Some(DeviceScale::new(1.0, 2.0)));
+                assert_eq!(
+                    function.format,
+                    Some(FormatOptions {
+                        precision: Some(0.01),
+                        scale_by: Some(1000.0),
+                        display_as: Some(DisplayAs::Percent),
+                        delimit_000s: Some(true),
+                    })
+                );
             }
         }
 

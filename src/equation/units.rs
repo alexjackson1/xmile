@@ -53,6 +53,32 @@ pub enum UnitEquation {
     Parentheses(Box<UnitEquation>),
 }
 
+impl UnitEquation {
+    pub fn integer(value: i32) -> Self {
+        UnitEquation::Integer(value)
+    }
+
+    pub fn alias(identifier: Identifier) -> Self {
+        UnitEquation::Alias(identifier)
+    }
+
+    pub fn unary_minus(inner: UnitEquation) -> Self {
+        UnitEquation::UnaryMinus(Box::new(inner))
+    }
+
+    pub fn multiplication(left: UnitEquation, right: UnitEquation) -> Self {
+        UnitEquation::Multiplication(Box::new(left), Box::new(right))
+    }
+
+    pub fn division(left: UnitEquation, right: UnitEquation) -> Self {
+        UnitEquation::Division(Box::new(left), Box::new(right))
+    }
+
+    pub fn parentheses(inner: UnitEquation) -> Self {
+        UnitEquation::Parentheses(Box::new(inner))
+    }
+}
+
 impl<'de> Deserialize<'de> for UnitEquation {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
