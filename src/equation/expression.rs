@@ -1,8 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 use std::fmt;
 
 use function::FunctionTarget;
 use operator::Operator;
-use serde::{Deserialize, Serialize};
 
 use crate::equation::parse::expression;
 
