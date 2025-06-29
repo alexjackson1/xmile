@@ -3,7 +3,10 @@ use thiserror::Error;
 
 use crate::{
     Expression, Identifier, Measure, UnitEquation,
-    model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
+    model::{
+        object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
+        vars::NonNegativeContent,
+    },
     types::{Validate, ValidationResult},
 };
 
@@ -73,36 +76,6 @@ struct RawStock {
     scale: Option<DeviceScale>,
     #[serde(rename = "format")]
     format: Option<FormatOptions>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-struct NonNegativeContent {
-    #[serde(rename = "#text")]
-    value: Option<bool>,
-}
-
-impl From<NonNegativeContent> for bool {
-    fn from(content: NonNegativeContent) -> Self {
-        content.value.unwrap_or(true)
-    }
-}
-
-impl From<NonNegativeContent> for Option<bool> {
-    fn from(content: NonNegativeContent) -> Self {
-        content.value
-    }
-}
-
-impl From<NonNegativeContent> for Option<Option<bool>> {
-    fn from(content: NonNegativeContent) -> Self {
-        Some(content.value)
-    }
-}
-
-impl From<Option<bool>> for NonNegativeContent {
-    fn from(value: Option<bool>) -> Self {
-        NonNegativeContent { value }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -240,6 +240,10 @@ impl fmt::Display for Expression {
         match self {
             Expression::Constant(value) => write!(f, "{}", value),
             Expression::Subscript(id, params) => {
+                if params.is_empty() {
+                    return write!(f, "{}", id);
+                }
+
                 write!(f, "{}[", id)?;
                 for (i, param) in params.iter().enumerate() {
                     if i > 0 {

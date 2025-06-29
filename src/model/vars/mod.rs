@@ -12,15 +12,16 @@ use crate::{
 };
 
 pub use aux::Auxiliary;
-pub use flow::Flow;
+pub use flow::BasicFlow;
 pub use gf::GraphicalFunction;
+use serde::{Deserialize, Serialize};
 pub use stock::Stock;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     Auxiliary(Auxiliary),
     Stock(Stock),
-    Flow(Flow),
+    Flow(BasicFlow),
     GraphicalFunction(GraphicalFunction),
 }
 
@@ -71,4 +72,34 @@ pub trait Var<'a>: Object + Measure + Document {
 
     #[cfg(feature = "mathml")]
     fn mathml_equation(&self) -> Option<&String>;
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+struct NonNegativeContent {
+    #[serde(rename = "#text")]
+    value: Option<bool>,
+}
+
+impl From<NonNegativeContent> for bool {
+    fn from(content: NonNegativeContent) -> Self {
+        content.value.unwrap_or(true)
+    }
+}
+
+impl From<NonNegativeContent> for Option<bool> {
+    fn from(content: NonNegativeContent) -> Self {
+        content.value
+    }
+}
+
+impl From<NonNegativeContent> for Option<Option<bool>> {
+    fn from(content: NonNegativeContent) -> Self {
+        Some(content.value)
+    }
+}
+
+impl From<Option<bool>> for NonNegativeContent {
+    fn from(value: Option<bool>) -> Self {
+        NonNegativeContent { value }
+    }
 }

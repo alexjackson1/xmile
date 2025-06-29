@@ -282,11 +282,7 @@ impl Identifier {
 
     /// Parses a quoted identifier from a string.
     pub fn parse_from_attribute(input: &str) -> Result<Self, IdentifierError> {
-        println!("Parsing identifier from attribute: {}", input);
         let input = format!("\"{}\"", input.trim_matches('"'));
-        println!("Quoted identifier input: {}", input);
-
-        // Ensure the input is properly quoted
         Identifier::parse_default(&input)
     }
 
