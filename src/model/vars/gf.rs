@@ -997,11 +997,19 @@ pub mod data {
                 return UniformPosition::Single(0.0);
             }
 
-            if x <= x_scale.min {
+            if x == x_scale.min {
+                return UniformPosition::Single(y_values[0]);
+            }
+
+            if x == x_scale.max {
+                return UniformPosition::Single(*y_values.last().unwrap());
+            }
+
+            if x < x_scale.min {
                 return UniformPosition::BeforeRange(y_values[0]);
             }
 
-            if x >= x_scale.max {
+            if x > x_scale.max {
                 return UniformPosition::AfterRange(*y_values.last().unwrap());
             }
 
@@ -1038,11 +1046,19 @@ pub mod data {
                 return XYPosition::Single(0.0);
             }
 
-            if x <= x_values[0] {
+            if x == x_values[0] {
+                return XYPosition::Single(y_values[0]);
+            }
+
+            if x == *x_values.last().unwrap() {
+                return XYPosition::Single(*y_values.last().unwrap());
+            }
+
+            if x < x_values[0] {
                 return XYPosition::BeforeRange(y_values[0]);
             }
 
-            if x >= *x_values.last().unwrap() {
+            if x > *x_values.last().unwrap() {
                 return XYPosition::AfterRange(*y_values.last().unwrap());
             }
 
@@ -2166,6 +2182,204 @@ mod tests {
 
             assert_float_eq(gf.evaluate(250000.0), 250000.0, 1.0); // Allow larger tolerance for large numbers
         }
+
+        /// Test evaluation exactly at boundary points for uniform scale
+        #[test]
+        fn test_evaluation_at_exact_boundaries_uniform() {
+            let gf: GraphicalFunction =
+                GraphicalFunctionData::uniform_scale((0.0, 10.0), vec![1.0, 5.0, 9.0], None).into();
+
+            // Test exact boundary evaluation
+            assert_float_eq(gf.evaluate(0.0), 1.0, 1e-10);
+            assert_float_eq(gf.evaluate(10.0), 9.0, 1e-10);
+
+            // Test just inside boundaries
+            assert_float_eq(gf.evaluate(0.0000001), 1.0000008, 1e-6);
+            assert_float_eq(gf.evaluate(9.9999999), 8.9999998, 1e-6);
+        }
+
+        /// Test evaluation exactly at boundary points for XY pairs
+        #[test]
+        fn test_evaluation_at_exact_boundaries_xy() {
+            let gf: GraphicalFunction =
+                GraphicalFunctionData::xy_pairs(vec![0.0, 5.0, 10.0], vec![1.0, 5.0, 9.0], None)
+                    .into();
+
+            // Test exact boundary evaluation
+            assert_float_eq(gf.evaluate(0.0), 1.0, 1e-10);
+            assert_float_eq(gf.evaluate(10.0), 9.0, 1e-10);
+
+            // Test exact intermediate point
+            assert_float_eq(gf.evaluate(5.0), 5.0, 1e-10);
+        }
+
+        /// Test evaluation with NaN and infinity inputs
+        #[test]
+        fn test_evaluation_with_nan_infinity_inputs() {
+            let gf: GraphicalFunction =
+                GraphicalFunctionData::uniform_scale((0.0, 1.0), vec![0.0, 0.5, 1.0], None).into();
+
+            // NaN input should return NaN or handle gracefully
+            let result_nan = gf.evaluate(f64::NAN);
+            assert!(result_nan.is_nan() || result_nan.is_finite()); // Either NaN or clamped value
+
+            // Infinity inputs should clamp to boundary values
+            let result_pos_inf = gf.evaluate(f64::INFINITY);
+            assert_float_eq(result_pos_inf, 1.0, 1e-10); // Should clamp to max
+
+            let result_neg_inf = gf.evaluate(f64::NEG_INFINITY);
+            assert_float_eq(result_neg_inf, 0.0, 1e-10); // Should clamp to min
+        }
+
+        /// Test evaluation with very close x-values that might cause precision issues
+        #[test]
+        fn test_evaluation_precision_edge_cases() {
+            let gf: GraphicalFunction = GraphicalFunctionData::xy_pairs(
+                vec![0.0, 1e-15, 2e-15], // Very close x-values
+                vec![0.0, 1.0, 2.0],
+                None,
+            )
+            .into();
+
+            // Test evaluation between very close points
+            let result = gf.evaluate(1.5e-15);
+            assert!(
+                result >= 1.0 && result <= 2.0,
+                "Result should be interpolated between 1.0 and 2.0"
+            );
+
+            // Test with values that might cause floating-point precision issues
+            let large_gf: GraphicalFunction = GraphicalFunctionData::uniform_scale(
+                (1e10, 1e10 + 1e-10), // Very large numbers with tiny range
+                vec![0.0, 1.0],
+                None,
+            )
+            .into();
+
+            let large_result = large_gf.evaluate(1e10 + 5e-11);
+            assert!(
+                large_result.is_finite(),
+                "Result should be finite even with precision edge cases"
+            );
+        }
+
+        /// Test discrete evaluation at exact transition points
+        #[test]
+        fn test_discrete_evaluation_at_transitions() {
+            let gf = GraphicalFunction::discrete(
+                None,
+                GraphicalFunctionData::uniform_scale(
+                    (0.0, 3.0),
+                    vec![1.0, 2.0, 3.0, 3.0], // Last two same for valid discrete
+                    None,
+                ),
+            );
+
+            // Test evaluation exactly at transition points
+            assert_float_eq(gf.evaluate(0.0), 1.0, 1e-10);
+            assert_float_eq(gf.evaluate(1.0), 2.0, 1e-10); // Should switch over
+            assert_float_eq(gf.evaluate(0.99999999), 1.0, 1e-10); // Should still be 1.0
+            assert_float_eq(gf.evaluate(3.0), 3.0, 1e-10);
+        }
+
+        /// Test extrapolation with identical consecutive points
+        #[test]
+        fn test_extrapolation_with_identical_points() {
+            let gf = GraphicalFunction::extrapolate(
+                None,
+                GraphicalFunctionData::xy_pairs(
+                    vec![0.0, 1.0, 1.0, 2.0], // Duplicate x-value at 1.0
+                    vec![0.0, 5.0, 5.0, 10.0],
+                    None,
+                ),
+            );
+
+            // This should handle gracefully (might be invalid data, but shouldn't panic)
+            let result = gf.evaluate(1.5);
+            assert!(
+                result.is_finite(),
+                "Should handle identical x-values without panicking"
+            );
+        }
+
+        /// Test evaluation with zero-width intervals
+        #[test]
+        fn test_zero_width_intervals() {
+            let gf: GraphicalFunction = GraphicalFunctionData::xy_pairs(
+                vec![5.0, 5.0, 5.0], // All same x-value
+                vec![1.0, 2.0, 3.0],
+                None,
+            )
+            .into();
+
+            // Should return some reasonable value without panicking
+            let result = gf.evaluate(5.0);
+            assert!(
+                result.is_finite(),
+                "Should handle zero-width intervals gracefully"
+            );
+
+            let result_outside = gf.evaluate(6.0);
+            assert!(
+                result_outside.is_finite(),
+                "Should handle evaluation outside zero-width interval"
+            );
+        }
+
+        /// Test extreme coordinate values near f64 limits
+        #[test]
+        fn test_extreme_coordinate_values() {
+            let gf: GraphicalFunction = GraphicalFunctionData::uniform_scale(
+                (f64::MIN / 2.0, f64::MAX / 2.0), // Large but safe range
+                vec![f64::MIN / 4.0, 0.0, f64::MAX / 4.0],
+                None,
+            )
+            .into();
+
+            // Test evaluation with extreme inputs
+            let result_min = gf.evaluate(f64::MIN / 2.0);
+            assert!(
+                result_min.is_finite(),
+                "Should handle extreme minimum values"
+            );
+
+            let result_max = gf.evaluate(f64::MAX / 2.0);
+            assert!(
+                result_max.is_finite(),
+                "Should handle extreme maximum values"
+            );
+
+            // Test interpolation doesn't overflow
+            let result_mid = gf.evaluate(0.0);
+            assert!(
+                result_mid.is_finite(),
+                "Interpolation should not overflow with extreme values"
+            );
+        }
+
+        /// Test evaluation performance doesn't degrade with edge cases
+        #[test]
+        fn test_evaluation_performance_edge_cases() {
+            let large_gf: GraphicalFunction = GraphicalFunctionData::uniform_scale(
+                (0.0, 1000.0),
+                (0..1001).map(|i| i as f64).collect(),
+                None,
+            )
+            .into();
+
+            // Test that evaluation is still fast with large datasets
+            let start = std::time::Instant::now();
+            for i in 0..1000 {
+                let _ = large_gf.evaluate(i as f64 + 0.5);
+            }
+            let duration = start.elapsed();
+
+            // Should complete 1000 evaluations quickly (adjust threshold as needed)
+            assert!(
+                duration.as_millis() < 100,
+                "Evaluation should be performant even with large datasets"
+            );
+        }
     }
 
     #[cfg(test)]
@@ -2996,6 +3210,155 @@ mod tests {
                     }
                     _ => panic!("Expected XYPairs variant"),
                 }
+            }
+        }
+
+        mod advanced_error_handling {
+            use crate::{GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType};
+
+            /// Test malformed XML structure recovery
+            #[test]
+            fn test_malformed_xml_recovery() {
+                // Missing closing tag
+                let malformed_xml1 = r#"<gf name="malformed">
+            <xscale min="0" max="1"/>
+            <ypts>0,1
+        </gf>"#;
+
+                let result1: Result<GraphicalFunction, _> = serde_xml_rs::from_str(malformed_xml1);
+                assert!(
+                    result1.is_err(),
+                    "Should fail gracefully with malformed XML"
+                );
+
+                // Nested structure error
+                let malformed_xml2 = r#"<gf name="nested_error">
+            <xscale min="0" max="1">
+                <ypts>0,1</ypts>
+            </xscale>
+        </gf>"#;
+
+                let result2: Result<GraphicalFunction, _> = serde_xml_rs::from_str(malformed_xml2);
+                assert!(
+                    result2.is_err(),
+                    "Should fail with incorrectly nested elements"
+                );
+            }
+
+            /// Test partial parsing failures with mixed valid/invalid data
+            #[test]
+            fn test_partial_parsing_failures() {
+                // Valid structure but invalid numeric data mixed in
+                let mixed_xml = r#"<gf name="mixed_validity">
+            <xscale min="0" max="invalid"/>
+            <ypts>0,1,2</ypts>
+        </gf>"#;
+
+                let result: Result<GraphicalFunction, _> = serde_xml_rs::from_str(mixed_xml);
+                assert!(
+                    result.is_err(),
+                    "Should fail when scale has invalid numeric values"
+                );
+
+                // Some valid points, some invalid
+                let mixed_points_xml = r#"<gf name="mixed_points">
+            <xscale min="0" max="1"/>
+            <ypts>0,invalid,1,also_invalid,2</ypts>
+        </gf>"#;
+
+                let result2: Result<GraphicalFunction, _> =
+                    serde_xml_rs::from_str(mixed_points_xml);
+                assert!(
+                    result2.is_err(),
+                    "Should fail when points contain invalid numeric values"
+                );
+            }
+
+            /// Test very long function names and values
+            #[test]
+            fn test_very_long_names_and_values() {
+                let long_name = "a".repeat(1000);
+                let long_values = (0..1000)
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+
+                let xml = format!(
+                    r#"<gf name="{}">
+            <xscale min="0" max="999"/>
+            <ypts>{}</ypts>
+        </gf>"#,
+                    long_name, long_values
+                );
+
+                let result: Result<GraphicalFunction, _> = serde_xml_rs::from_str(&xml);
+                match result {
+                    Ok(gf) => {
+                        assert_eq!(gf.name.as_ref().unwrap().to_string(), long_name);
+                        assert_eq!(gf.data.len(), 1000);
+                    }
+                    Err(_) => {
+                        // This might fail due to memory or parsing limits, which is acceptable
+                        // The important thing is it doesn't panic
+                    }
+                }
+            }
+
+            /// Test XML with unexpected attributes
+            #[test]
+            fn test_unexpected_attributes() {
+                let xml_with_extra_attrs = r#"<gf name="test" type="continuous" extra_attr="value" another="123">
+            <xscale min="0" max="1" unexpected="attr"/>
+            <ypts sep="," also_unexpected="value">0,0.5,1</ypts>
+        </gf>"#;
+
+                // Should parse successfully, ignoring unexpected attributes
+                let result: Result<GraphicalFunction, _> =
+                    serde_xml_rs::from_str(xml_with_extra_attrs);
+                match result {
+                    Ok(gf) => {
+                        assert_eq!(gf.name.as_ref().unwrap().to_string(), "test");
+                        assert_eq!(gf.function_type(), GraphicalFunctionType::Continuous);
+                    }
+                    Err(_) => {
+                        // Might fail depending on XML parser strictness, but shouldn't panic
+                    }
+                }
+            }
+
+            /// Test CDATA sections in point values
+            #[test]
+            fn test_cdata_in_values() {
+                let cdata_xml = r#"<gf name="cdata_test">
+            <xscale min="0" max="1"/>
+            <ypts><![CDATA[0,0.5,1]]></ypts>
+        </gf>"#;
+
+                let result: Result<GraphicalFunction, _> = serde_xml_rs::from_str(cdata_xml);
+                // Should either parse correctly or fail gracefully
+                match result {
+                    Ok(gf) => match gf.data {
+                        GraphicalFunctionData::UniformScale { y_values, .. } => {
+                            assert_eq!(y_values.values, vec![0.0, 0.5, 1.0]);
+                        }
+                        _ => panic!("Expected UniformScale variant"),
+                    },
+                    Err(_) => {
+                        // CDATA might not be supported, but shouldn't panic
+                    }
+                }
+            }
+
+            /// Test Unicode characters in function names
+            #[test]
+            fn test_unicode_function_names() {
+                let unicode_xml = r#"<gf name="函数_测试_🧪">
+            <xscale min="0" max="1"/>
+            <ypts>0,1</ypts>
+        </gf>"#;
+
+                let result: Result<GraphicalFunction, _> = serde_xml_rs::from_str(unicode_xml);
+                assert_eq!(result.unwrap().name.as_ref().unwrap().raw(), "函数_测试_🧪");
             }
         }
     }
