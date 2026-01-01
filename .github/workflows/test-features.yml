@@ -1,0 +1,54 @@
+name: Test Feature Combinations
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-features:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        features:
+          - ""
+          - "arrays"
+          - "conveyors"
+          - "queues"
+          - "submodels"
+          - "macros"
+          - "mathml"
+          - "arrays,submodels"
+          - "arrays,macros"
+          - "submodels,macros"
+          - "arrays,submodels,macros"
+          - "full"
+          - "arrays,conveyors,queues,submodels,macros,mathml"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Check compilation
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo check
+          else
+            cargo check --features "${{ matrix.features }}"
+          fi
+
+      - name: Run tests
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo test
+          else
+            cargo test --features "${{ matrix.features }}"
+          fi
