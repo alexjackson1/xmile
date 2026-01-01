@@ -1,24 +1,45 @@
+pub mod behavior;
 pub mod containers;
 pub mod core;
+pub mod data;
+pub mod dimensions;
 pub mod equation;
+pub mod header;
+pub mod r#macro;
 pub mod model;
 pub mod namespace;
+pub mod specs;
+pub mod units;
 pub mod validation_utils;
+pub mod view;
 
 pub mod types;
-// pub mod xml;
+pub mod xml;
 
 #[cfg(test)]
 mod test_utils;
 
-pub use crate::containers::{Container, ContainerMut};
-pub use crate::core::Uid;
-pub use crate::equation::{
+pub use containers::{Container, ContainerMut};
+pub use core::Uid;
+pub use equation::{
     Expression, Identifier, Measure, NumericConstant, Operator, UnitEquation, UnitOfMeasure,
 };
-pub use crate::model::vars::gf::{GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType};
+pub use model::vars::gf::{GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType};
+pub use namespace::Namespace;
 
-pub use crate::namespace::Namespace;
+pub enum Vendor {
+    Anylogic,
+    Forio,
+    Insightmaker,
+    Isee,
+    Powersim,
+    Simanticssd,
+    Simile,
+    Sysdea,
+    Vensim,
+    SimLab,
+    Other,
+}
 
 pub trait Interpolatable {
     fn interpolate_between(lower: f64, upper: f64, t: f64) -> f64 {

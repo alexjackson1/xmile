@@ -1,4 +1,10 @@
-use crate::model::variables::Variable;
+use crate::{
+    behavior::Behavior, data::Data, dimensions::Dimensions, header::Header, model::vars::Variable,
+    specs::SimulationSpecs, units::ModelUnits, view::Style,
+};
+
+#[cfg(feature = "macros")]
+use crate::r#macro::Macro;
 
 /// A XMILE file contains information about a whole-model, with a
 /// well-specified structure. The file MUST be encoded in UTF-8. The entire
@@ -33,10 +39,19 @@ use crate::model::variables::Variable;
 /// - `<model>+` - definition of model equations and (optionally) diagrams.
 /// - `<macro>*` - definition of macros that can be used in model equations.
 ///
-/// These tags are specified in the subsequent sections of this chapter, after XMILE namespaces are discussed.
+/// These tags are specified in the subsequent sections of this chapter, after
+/// XMILE namespaces are discussed.
 ///
-/// When an XMILE file includes references to models contained in separate files or at a specific URL, each such file may contain overlapping information, most commonly in sim_specs, model_units and dimensions. When such overlap is consistent, combining parts is done by taking the union of the different component files. When an inconsistency is found, (for example, a dimension with two distinct definitions) software reading the files MUST resolve the inconsistency and SHOULD provide user feedback in doing so. Some inconsistencies, such as conflicting Macro or Model names MUST be resolved as detailed in section 2.11.3.
-pub struct File {
+/// When an XMILE file includes references to models contained in separate files
+/// or at a specific URL, each such file may contain overlapping information,
+/// most commonly in sim_specs, model_units and dimensions. When such overlap
+/// is consistent, combining parts is done by taking the union of the different
+/// component files. When an inconsistency is found, (for example, a dimension
+/// with two distinct definitions) software reading the files MUST resolve the
+/// inconsistency and SHOULD provide user feedback in doing so. Some
+/// inconsistencies, such as conflicting Macro or Model names MUST be resolved
+/// as detailed in section 2.11.3.
+pub struct XmileFile {
     /// The version of the XMILE specification used in this file.
     pub version: String,
     /// The XML namespace for XMILE.
@@ -58,54 +73,10 @@ pub struct File {
     /// A list of models defined in the XMILE file.
     pub models: Vec<Model>,
     /// A list of macros defined in the XMILE file.
+    #[cfg(feature = "macros")]
     pub macros: Vec<Macro>,
 }
 
-/// The XML tag for the file header is <header>. The REQUIRED sub-tags are:
-///
-/// ·         Vendor name:  <vendor> w/company name
-/// ·         Product name:  <product version="…" lang="…"> w/product name – the product version number is REQUIRED. The language code is optional (default: English) and describes the language used for variable names and comments. Language codes are described by ISO 639-1 unless the language is not there, in which case the ISO 639-2 code should be used (e.g., for Hawaiian).
-///
-/// OPTIONAL sub-tags include:
-///
-/// ·         XMILE options: <options> (defined below)
-/// ·         Model name:     <name> w/name
-/// ·         Model version:  <version> w/version information
-/// ·         Model caption:  <caption> w/caption
-/// ·         Picture of the model in JPG, GIF, TIF, or PNG format:  <image resource=””>. The resource attribute is optional and may specify a relative file path, an absolute file path, or an URL.  The picture data may also be embedded inside the <image> tag in Data URI format, using base64 encoding.
-/// ·         Author name:  <author> w/author name
-/// ·         Company name:  <affiliation> w/company name
-/// ·         Client name:  <client> w/client name
-/// ·         Copyright notice:  <copyright> w/copyright information
-/// ·         Contact information (e-mail, phone, mailing address, web site):
-///             <contact> block w/contact information broken into <address>,
-///             <phone>, <fax>, <email>, and <website>, all optional
-/// ·         Date created:  <created> whose contents MUST be in ISO 8601 format, e.g. “ 2014-08-10”.
-/// ·         Date modified:  <modified>  whose contents MUST be in ISO 8601 format, as well
-/// ·         Model universally unique ID:  <uuid> where the ID MUST be in IETF RFC4122 format (84-4-4-12 hex digits with the dashes)
-/// ·         Includes: <includes> section with a list of included files or URLs. This is specified in more detail in Section 2.11.
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Header {
-    vendor: String,
-    product: String,
-    version: String,
-    lang: Option<String>,
-    options: Option<Options>,
-    name: Option<String>,
-    version_info: Option<String>,
-    caption: Option<String>,
-    image: Option<String>, // Resource path or Data URI
-    author: Option<String>,
-    affiliation: Option<String>,
-    client: Option<String>,
-    copyright: Option<String>,
-    contact: Option<Contact>,
-    created: Option<String>,       // ISO 8601 format
-    modified: Option<String>,      // ISO 8601 format
-    uuid: Option<String>,          // IETF RFC4122 format
-    includes: Option<Vec<String>>, // List of included files or URLs
-}
 /// The overall structure of a <model> tag appears below (sub-tags MUST appear in this order):
 ///
 /// ```xml
@@ -133,20 +104,4 @@ pub struct Model {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct SimulationSpecs {}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Behavior {}
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct Views {}
-
-pub struct AuxiliaryVariable {
-    name: String,
-    expression: String,
-}
-
-pub struct StockVariable {
-    name: String,
-    initial_value: f64,
-}
