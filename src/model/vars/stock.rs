@@ -5,7 +5,7 @@ use crate::{
     Expression, Identifier, Measure, UnitEquation,
     model::{
         object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
-        vars::NonNegativeContent,
+        vars::{AccessType, NonNegativeContent},
     },
     types::{Validate, ValidationResult},
 };
@@ -45,6 +45,12 @@ pub enum Stock {
 struct RawStock {
     #[serde(rename = "@name")]
     name: Identifier,
+
+    #[serde(rename = "@access")]
+    access: Option<AccessType>,
+
+    #[serde(rename = "@autoexport")]
+    autoexport: Option<bool>,
 
     #[serde(rename = "inflow")]
     #[serde(default)]
@@ -175,6 +181,8 @@ impl From<BasicStock> for RawStock {
     fn from(stock: BasicStock) -> Self {
         RawStock {
             name: stock.name,
+            access: stock.access,
+            autoexport: stock.autoexport,
             inflows: stock.inflows,
             outflows: stock.outflows,
             initial_equation: stock.initial_equation,
@@ -194,6 +202,8 @@ impl From<ConveyorStock> for RawStock {
     fn from(stock: ConveyorStock) -> Self {
         RawStock {
             name: stock.name,
+            access: stock.access,
+            autoexport: stock.autoexport,
             inflows: stock.inflows,
             outflows: stock.outflows,
             initial_equation: stock.initial_equation,
@@ -223,6 +233,8 @@ impl From<QueueStock> for RawStock {
     fn from(stock: QueueStock) -> Self {
         RawStock {
             name: stock.name,
+            access: stock.access,
+            autoexport: stock.autoexport,
             inflows: stock.inflows,
             outflows: stock.outflows,
             initial_equation: stock.initial_equation,
@@ -296,6 +308,12 @@ impl Serialize for Stock {
 pub struct BasicStock {
     /// The name of the stock variable.
     pub name: Identifier,
+
+    /// The access type for submodel I/O (input or output).
+    pub access: Option<AccessType>,
+
+    /// Whether access is automatically set to output.
+    pub autoexport: Option<bool>,
 
     /// The inflows to the stock variable.
     pub inflows: Vec<Identifier>,
@@ -384,6 +402,8 @@ impl From<RawStock> for BasicStock {
     fn from(raw: RawStock) -> Self {
         BasicStock {
             name: raw.name,
+            access: raw.access,
+            autoexport: raw.autoexport,
             inflows: raw.inflows,
             outflows: raw.outflows,
             initial_equation: raw.initial_equation,
@@ -404,6 +424,12 @@ impl BasicStock {}
 pub struct ConveyorStock {
     /// The name of the conveyor variable.
     pub name: Identifier,
+
+    /// The access type for submodel I/O (input or output).
+    pub access: Option<AccessType>,
+
+    /// Whether access is automatically set to output.
+    pub autoexport: Option<bool>,
 
     /// The inflows to the conveyor.
     pub inflows: Vec<Identifier>,
@@ -518,6 +544,8 @@ impl TryFrom<RawStock> for ConveyorStock {
     fn try_from(raw: RawStock) -> Result<Self, Self::Error> {
         Ok(ConveyorStock {
             name: raw.name,
+            access: raw.access,
+            autoexport: raw.autoexport,
             inflows: raw.inflows,
             outflows: raw.outflows,
             initial_equation: raw.initial_equation,
@@ -550,6 +578,12 @@ impl ConveyorStock {}
 pub struct QueueStock {
     /// The name of the queue variable.
     pub name: Identifier,
+
+    /// The access type for submodel I/O (input or output).
+    pub access: Option<AccessType>,
+
+    /// Whether access is automatically set to output.
+    pub autoexport: Option<bool>,
 
     /// The inflows to the queue variable.
     pub inflows: Vec<Identifier>,
@@ -635,6 +669,8 @@ impl From<RawStock> for QueueStock {
     fn from(raw: RawStock) -> Self {
         QueueStock {
             name: raw.name,
+            access: raw.access,
+            autoexport: raw.autoexport,
             inflows: raw.inflows,
             outflows: raw.outflows,
             initial_equation: raw.initial_equation,

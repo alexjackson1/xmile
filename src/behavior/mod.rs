@@ -18,18 +18,20 @@
 
 // TODO: This is too vague for me to understand how to implement properly right now.
 
-#[derive(Debug, PartialEq, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Behavior {
     pub entries: Vec<BehaviorEntry>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BehaviorEntry {
     pub entity: String,
     pub entry_properties: Vec<BehaviorProperty>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum BehaviorProperty {
     NonNegative,
 }

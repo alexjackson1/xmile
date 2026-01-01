@@ -63,16 +63,14 @@
 //    <has_model_view/>                    <!-- has diagram of model -->
 // </options>
 
-#[derive(Debug, PartialEq, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Header {
     /// The vendor/company name.
     pub vendor: String,
-    /// The product name.
-    pub product: String,
-    /// The product version.
-    pub version: String,
-    /// The language code.
-    pub lang: Option<String>,
+    /// The product information (name, version, and language).
+    pub product: Product,
     /// The options for the header.
     pub options: Option<Options>,
     /// The name of the model.
@@ -100,10 +98,42 @@ pub struct Header {
     /// The universally unique ID of the model.
     pub uuid: Option<String>, // IETF RFC4122 format
     /// The list of included files or URLs.
-    pub includes: Option<Vec<String>>,
+    pub includes: Option<Includes>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+/// A list of included files or URLs.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct Includes {
+    /// List of include resources (URLs, relative paths, or absolute paths).
+    #[serde(rename = "include", default)]
+    pub includes: Vec<Include>,
+}
+
+/// An included file or URL resource.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct Include {
+    /// The resource path (URL, relative path, or absolute path).
+    /// Can include wildcards (e.g., "macros/*.xml").
+    #[serde(rename = "@resource")]
+    pub resource: String,
+}
+
+/// Product information from the <product> tag.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct Product {
+    /// The product version (REQUIRED attribute).
+    #[serde(rename = "@version")]
+    pub version: String,
+    /// The language code (optional attribute).
+    #[serde(rename = "@lang")]
+    pub lang: Option<String>,
+    /// The product name (text content of the tag).
+    /// In serde-xml-rs, text content is typically the field name or can be accessed via #text
+    #[serde(rename = "#text")]
+    pub name: String,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Options {
     /// The namespace for the options.
     pub namespace: Option<String>,
@@ -129,7 +159,7 @@ pub struct Options {
     pub uses_annotation: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct UsesConveyor {
     /// Indicates whether arrest is used.
     pub arrest: Option<bool>,
@@ -137,13 +167,13 @@ pub struct UsesConveyor {
     pub leak: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct UsesQueue {
     /// Indicates whether overflow is used.
     pub overflow: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct UsesArrays {
     /// The maximum dimensions used by any variable in the whole-model.
     pub maximum_dimensions: usize,
@@ -151,7 +181,7 @@ pub struct UsesArrays {
     pub invalid_index_value: Option<String>, // NaN/0
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct UsesMacros {
     /// Indicates whether recursive macros are used.
     pub recursive_macros: bool,
@@ -159,13 +189,13 @@ pub struct UsesMacros {
     pub option_filters: bool,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct UsesEventPosters {
     /// Indicates whether messages are used.
     pub messages: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct UsesOutputs {
     /// Indicates whether numeric display is used.
     pub numeric_display: Option<bool>,
@@ -175,7 +205,7 @@ pub struct UsesOutputs {
     pub gauge: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct UsesInputs {
     /// Indicates whether numeric input is used.
     pub numeric_input: Option<bool>,
@@ -185,7 +215,7 @@ pub struct UsesInputs {
     pub graphical_input: Option<bool>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Contact {
     /// The address of the contact.
     pub address: Option<String>,

@@ -47,3 +47,41 @@
 // Display objects do not have names or any other way to specifically refer to individual objects. Therefore any display object which is referred to anywhere else in the XMILE file MUST provide a uid="<int>" attribute. This attribute is a unique linearly increasing integer which gives each display object a way to be referred to specifically while reading in an XMILE file. UIDs are NOT REQUIRED to be stable across successive reads and writes. Objects requiring a uid are listed in Chapter 6 of this specification. UIDs MUST be unique per XMILE model.
 
 pub mod schema;
+
+pub use schema::{XmileFile, Model, Views};
+
+use std::io::Read;
+use std::path::Path;
+use std::fs::File;
+
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ParseError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("XML parsing error: {0}")]
+    Xml(String),
+    #[error("Deserialization error: {0}")]
+    Deserialize(String),
+}
+
+impl XmileFile {
+    /// Parse an XMILE file from a string.
+    pub fn from_str(xml: &str) -> Result<Self, ParseError> {
+        serde_xml_rs::from_str(xml)
+            .map_err(|e| ParseError::Deserialize(e.to_string()))
+    }
+
+    /// Parse an XMILE file from a reader.
+    pub fn from_reader<R: Read>(reader: R) -> Result<Self, ParseError> {
+        serde_xml_rs::from_reader(reader)
+            .map_err(|e| ParseError::Deserialize(e.to_string()))
+    }
+
+    /// Parse an XMILE file from a file path.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ParseError> {
+        let file = File::open(path)?;
+        Self::from_reader(file)
+    }
+}

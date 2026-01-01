@@ -10,7 +10,9 @@
 // ·         Pause interval:  pause="…" w/interval (default: infinity – can be ignored)
 // ·         Run selected groups or modules:  <run by="…"> with run type either:  all, group, or module (default: all, i.e., run whole-model).  Which groups or modules to run are identified by run attributes on the group or model.
 
-#[derive(Debug, PartialEq, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SimulationSpecs {
     /// The start time of the simulation.
     pub start: f64,

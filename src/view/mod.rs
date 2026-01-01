@@ -1,13 +1,16 @@
 pub mod style;
 pub use style::Style;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{Uid, Vendor};
 
 pub mod objects;
 pub use objects::*;
 
 /// The type of a view determines what kind of display objects it can contain.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ViewType {
     StockFlow,
     Interface,
@@ -17,7 +20,7 @@ pub enum ViewType {
 
 /// A view contains XMILE display objects and represents a page or screen
 /// of a model's stock and flow diagram, or its interface.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct View {
     pub uid: Uid,
     pub view_type: ViewType,
@@ -67,13 +70,15 @@ pub struct View {
     pub buttons: Vec<ButtonObject>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PageSequence {
     Row,
     Column,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PageOrientation {
     Landscape,
     Portrait,

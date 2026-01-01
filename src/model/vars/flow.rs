@@ -5,7 +5,7 @@ use crate::{
     Expression, Identifier, Measure, UnitEquation,
     model::{
         object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
-        vars::NonNegativeContent,
+        vars::{AccessType, NonNegativeContent},
     },
 };
 
@@ -29,6 +29,10 @@ struct RawFlow {
     // Flow fields
     #[serde(rename = "@name")]
     name: Identifier,
+    #[serde(rename = "@access")]
+    access: Option<AccessType>,
+    #[serde(rename = "@autoexport")]
+    autoexport: Option<bool>,
     #[serde(rename = "@leak_start")]
     leak_start: Option<f64>,
     #[serde(rename = "@leak_end")]
@@ -146,6 +150,8 @@ impl From<&BasicFlow> for RawFlow {
     fn from(flow: &BasicFlow) -> Self {
         RawFlow {
             name: flow.name.clone(),
+            access: flow.access,
+            autoexport: flow.autoexport,
             equation: flow.equation.clone(),
             mathml_equation: flow.mathml_equation.clone(),
             multiplier: flow.multiplier,
@@ -168,6 +174,8 @@ impl From<&QueueOverflow> for RawFlow {
     fn from(flow: &QueueOverflow) -> Self {
         RawFlow {
             name: flow.name.clone(),
+            access: flow.access,
+            autoexport: flow.autoexport,
             equation: flow.equation.clone(),
             mathml_equation: flow.mathml_equation.clone(),
             multiplier: flow.multiplier,
@@ -190,6 +198,8 @@ impl From<&ConveyorLeakage> for RawFlow {
     fn from(flow: &ConveyorLeakage) -> Self {
         RawFlow {
             name: flow.name.clone(),
+            access: flow.access,
+            autoexport: flow.autoexport,
             equation: flow.equation.clone(),
             mathml_equation: flow.mathml_equation.clone(),
             multiplier: flow.multiplier,
@@ -245,6 +255,9 @@ impl Serialize for Flow {
 pub struct BasicFlow {
     pub name: Identifier,
 
+    pub access: Option<AccessType>,
+    pub autoexport: Option<bool>,
+
     pub equation: Option<Expression>,
     pub mathml_equation: Option<String>,
 
@@ -259,6 +272,27 @@ pub struct BasicFlow {
     pub range: Option<DeviceRange>,
     pub scale: Option<DeviceScale>,
     pub format: Option<FormatOptions>,
+}
+
+// BasicFlow serializes/deserializes via RawFlow
+impl<'de> Deserialize<'de> for BasicFlow {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw: RawFlow = Deserialize::deserialize(deserializer)?;
+        Ok(BasicFlow::from(raw))
+    }
+}
+
+impl Serialize for BasicFlow {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let raw = RawFlow::from(self);
+        raw.serialize(serializer)
+    }
 }
 
 impl Var<'_> for BasicFlow {
@@ -306,6 +340,8 @@ impl From<RawFlow> for BasicFlow {
     fn from(raw: RawFlow) -> Self {
         BasicFlow {
             name: raw.name,
+            access: raw.access,
+            autoexport: raw.autoexport,
             equation: raw.equation,
             mathml_equation: raw.mathml_equation,
             multiplier: raw.multiplier,
@@ -322,6 +358,9 @@ impl From<RawFlow> for BasicFlow {
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueueOverflow {
     pub name: Identifier,
+
+    pub access: Option<AccessType>,
+    pub autoexport: Option<bool>,
 
     pub equation: Option<Expression>,
     pub mathml_equation: Option<String>,
@@ -382,6 +421,8 @@ impl From<RawFlow> for QueueOverflow {
     fn from(raw: RawFlow) -> Self {
         QueueOverflow {
             name: raw.name,
+            access: raw.access,
+            autoexport: raw.autoexport,
             equation: raw.equation,
             mathml_equation: raw.mathml_equation,
             multiplier: raw.multiplier,
@@ -397,6 +438,9 @@ impl From<RawFlow> for QueueOverflow {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConveyorLeakage {
     pub name: Identifier,
+
+    pub access: Option<AccessType>,
+    pub autoexport: Option<bool>,
 
     pub equation: Option<Expression>,
     pub mathml_equation: Option<String>,
@@ -464,6 +508,8 @@ impl TryFrom<RawFlow> for ConveyorLeakage {
     fn try_from(raw: RawFlow) -> Result<Self, Self::Error> {
         Ok(ConveyorLeakage {
             name: raw.name,
+            access: raw.access,
+            autoexport: raw.autoexport,
             equation: raw.equation,
             mathml_equation: raw.mathml_equation,
             multiplier: raw.multiplier,

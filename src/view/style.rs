@@ -16,13 +16,15 @@
 // </style>
 // Note that when style information applies to a specific object, that style cannot be overridden at a lower level (e.g., within a view) by a change to the overall style (i.e., by the options on the <style> tag). Using the example above, to override the color of connectors at a lower level (e.g., the Display), the <connector> tag must explicitly appear in that level’s style block. If it does not appear there, connectors will be magenta at that level by default, even if the style block at that level sets the default color of all objects to green. In other words, object-specific styles at any level above an object take precedence over an overall style defined at any lower level.
 
+use serde::{Deserialize, Serialize};
+
 /// Style information that cascades across multiple levels:
 /// 1. Styles for the given entity
 /// 2. Styles for all entities in a specific view
 /// 3. Styles for all entities in a collection of views
 /// 4. Styles for all entities in the XMILE file
 /// 5. Default XMILE-defined styles
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Style {
     /// Global style attributes that apply to all objects
     pub color: Option<Color>,
@@ -67,7 +69,7 @@ pub struct Style {
 }
 
 /// Style attributes for a specific object type
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObjectStyle {
     pub color: Option<Color>,
     pub background: Option<Color>,
@@ -88,7 +90,7 @@ pub struct ObjectStyle {
 }
 
 /// Padding specification supporting 1-4 values
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Padding {
     pub top: f64,
     pub right: Option<f64>,
@@ -129,6 +131,7 @@ pub struct Padding {
 
 // ** The specification for the padding attributes appears in Section 5.2.1
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StyleTag {
     Color(Color),
     Background(Color),
@@ -153,13 +156,13 @@ pub enum StyleTag {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Color {
     Hex(String),
     Predefined(PredefinedColor),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PredefinedColor {
     Aqua,
     Black,
@@ -202,45 +205,45 @@ impl PredefinedColor {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BorderWidth {
     Thick,
     Thin,
     Px(f64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BorderStyle {
     None,
     Solid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FontStyle {
     Normal,
     Italic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FontWeight {
     Normal,
     Bold,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TextDecoration {
     Normal,
     Underline,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TextAlign {
     Left,
     Right,
     Center,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VerticalTextAlign {
     Top,
     Bottom,

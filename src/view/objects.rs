@@ -37,6 +37,8 @@
 
 // ·         label_angle – This is the precise angle (in degrees where 0 is at 3 o’clock, increasing counter-clockwise) of the nameplate on the widget.  This is always specified in conjunction with label_side.
 
+use serde::{Deserialize, Serialize};
+
 use crate::Uid;
 
 use super::style::{
@@ -46,7 +48,7 @@ use super::style::{
 
 /// Shape tags allow stock, auxiliary, module, or alias objects to be represented
 /// using a different symbol than the default.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Shape {
     Rectangle {
         width: f64,
@@ -66,7 +68,7 @@ pub enum Shape {
 // <stock name=”Bathtub” x=”50” y=”100” width=”45” height=”35” label_side=”top” color=”blue” background=”white” z_index=”1” font_family=”Arial” font_size=”9pt” font_weight=”bold” font_style=”italic” text_decoration=”underline” text_align=”center” vertical_text_align=”center” text_padding=”2px” font_color=”blue” text_border_color=”black” text_border_width=”1px” text_border_style=”solid”/>
 // Descriptions of all the display attributes of a stock can be found in Section 6.1.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StockObject {
     pub uid: Uid,
     pub name: String,
@@ -105,13 +107,13 @@ pub struct StockObject {
 //     pts REQUIRED – These are the anchor points for the flow specified in model coordinates.  Flows can have any arbitrary number of points, but those points MUST form right angles.
 // Descriptions of all other display attributes of a flow can be found in Section 6.1.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FlowObject {
     pub uid: Uid,
     pub name: String,
@@ -144,7 +146,7 @@ pub struct FlowObject {
 // <aux name=”water flow rate” x=”50” y=”100” width=”45” height=”35” label_side=”top” color=”blue” background=”white” z_index=”1” font_family=”Arial” font_size=”9pt” font_weight=”bold” font_style=”italic” text_decoration=”underline” text_align=”center” vertical_text_align=”center” text_padding=”2px” font_color=”blue” text_border_color=”black” text_border_width=”1px” text_border_style=”solid”/>
 // Descriptions of all the display attributes of an aux can be found in Section 6.1.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuxObject {
     pub uid: Uid,
     pub name: String,
@@ -177,7 +179,7 @@ pub struct AuxObject {
 // <module name=”Important_Module” x=”50” y=”100” width=”45” height=”35” label_side=”top” color=”blue” background=”white” z_index=”1” font_family=”Arial” font_size=”9pt” font_weight=”bold” font_style=”italic” text_decoration=”underline” text_align=”center” vertical_text_align=”center” text_padding=”2px” font_color=”blue” text_border_color=”black” text_border_width=”1px” text_border_style=”solid”/>
 // Descriptions of all the display attributes of a module can be found in Section 6.1.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModuleObject {
     pub uid: Uid,
     pub name: String,
@@ -214,7 +216,7 @@ pub struct ModuleObject {
 //     locked="…" with true/false (default: false) REQUIRED – When a group is locked, all entities in that group move with the group.  When not locked, moving the group adjusts the items inside of the group (both model and display section objects).
 // Descriptions of all other display attributes of a group can be found in Section 6.1.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GroupObject {
     pub uid: Uid,
     pub name: String,
@@ -261,27 +263,27 @@ pub struct GroupObject {
 //     delay_mark ="…" with true/false (default: false) OPTIONAL - Describes whether or not this connector is marked with a symbol signifying a delay.
 // Descriptions of all other display attributes of a connector can be found in Section 6.1.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Polarity {
     Positive,
     Negative,
     None,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LineStyle {
     Solid,
     Dashed,
     VendorSpecific(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Pointer {
     Alias(Uid),
     Name(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectorObject {
     pub uid: Uid,
     pub x: f64,
@@ -320,7 +322,7 @@ pub struct ConnectorObject {
 //     of REQUIRED – The name of the model entity which this alias represents.  The model entity must be in the same model as the alias.
 // The other attributes of an alias are the same as the object to which the alias refers.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AliasObject {
     pub uid: Uid,
     pub x: f64,
@@ -360,7 +362,7 @@ pub struct AliasObject {
 
 // Stacked container objects are REQUIRED to have ONLY the five properties shown above.  Any borders, backgrounds etc. are supplied by their contents.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StackedContainerObject {
     pub uid: Uid,
     pub x: f64,
@@ -388,7 +390,7 @@ pub struct StackedContainerObject {
 
 // Descriptions of all other display attributes of a slider or knob can be found in Section 6.1.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SliderObject {
     pub uid: Uid,
     pub x: f64,
@@ -424,7 +426,7 @@ pub struct SliderObject {
 pub type KnobObject = SliderObject;
 
 // Switches and Radio Buttons (Option Groups)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwitchObject {
     pub uid: Uid,
     pub x: f64,
@@ -459,13 +461,13 @@ pub struct SwitchObject {
     pub reset_to: Option<(f64, String)>, // (value, after)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SwitchStyle {
     Toggle,
     PushButton,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OptionsObject {
     pub uid: Uid,
     pub x: f64,
@@ -494,14 +496,14 @@ pub struct OptionsObject {
     pub entities: Vec<OptionEntity>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OptionsLayout {
     Vertical,
     Horizontal,
     Grid,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OptionEntity {
     pub entity_name: String,
     pub index: Option<String>,
@@ -509,7 +511,7 @@ pub struct OptionEntity {
 }
 
 // Numeric Inputs and List Input Devices
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NumericInputObject {
     pub uid: Uid,
     pub x: f64,
@@ -540,7 +542,7 @@ pub struct NumericInputObject {
     pub value: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListInputObject {
     pub uid: Uid,
     pub x: f64,
@@ -569,7 +571,7 @@ pub struct ListInputObject {
 }
 
 // Graphical Inputs
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphicalInputObject {
     pub uid: Uid,
     pub x: f64,
@@ -596,7 +598,7 @@ pub struct GraphicalInputObject {
     pub graphical_function: Option<GraphicalFunctionData>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphicalFunctionData {
     pub xscale_min: f64,
     pub xscale_max: f64,
@@ -604,7 +606,7 @@ pub struct GraphicalFunctionData {
 }
 
 // Numeric Displays
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NumericDisplayObject {
     pub uid: Uid,
     pub x: f64,
@@ -635,7 +637,7 @@ pub struct NumericDisplayObject {
 }
 
 // Lamps and Gauges
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LampObject {
     pub uid: Uid,
     pub x: f64,
@@ -665,7 +667,7 @@ pub struct LampObject {
     pub zones: Vec<Zone>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GaugeObject {
     pub uid: Uid,
     pub x: f64,
@@ -695,7 +697,7 @@ pub struct GaugeObject {
     pub zones: Vec<Zone>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Zone {
     pub zone_type: ZoneType,
     pub color: Color,
@@ -704,7 +706,7 @@ pub struct Zone {
     pub sound: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ZoneType {
     Normal,
     Caution,
@@ -712,7 +714,7 @@ pub enum ZoneType {
 }
 
 // Graphs
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphObject {
     pub uid: Uid,
     pub x: f64,
@@ -757,14 +759,14 @@ pub struct GraphObject {
     pub plots: Vec<Plot>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GraphType {
     TimeSeries,
     Scatter,
     Bar,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plot {
     pub index: u32,
     pub pen_width: f64,
@@ -778,7 +780,7 @@ pub struct Plot {
     pub color: Option<Color>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PenStyle {
     Solid,
     Dotted,
@@ -786,14 +788,14 @@ pub enum PenStyle {
     DotDashed,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlotScale {
     pub min: f64,
     pub max: f64,
 }
 
 // Tables
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableObject {
     pub uid: Uid,
     pub x: f64,
@@ -843,25 +845,25 @@ pub struct TableObject {
     pub header_text_border_style: Option<BorderStyle>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TableOrientation {
     Horizontal,
     Vertical,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReportBalances {
     Beginning,
     Ending,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReportFlows {
     Instantaneous,
     Summed,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableItem {
     pub item_type: TableItemType,
     pub entity_name: Option<String>,
@@ -870,7 +872,7 @@ pub struct TableItem {
     pub column_width: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TableItemType {
     Time,
     Variable,
@@ -878,7 +880,7 @@ pub enum TableItemType {
 }
 
 // Text Boxes
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextBoxObject {
     pub uid: Uid,
     pub x: f64,
@@ -905,14 +907,14 @@ pub struct TextBoxObject {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TextBoxAppearance {
     Transparent,
     Normal,
 }
 
 // Graphics Frames
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphicsFrameObject {
     pub uid: Uid,
     pub x: f64,
@@ -941,13 +943,13 @@ pub struct GraphicsFrameObject {
     pub content: GraphicsFrameContent,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum GraphicsFrameContent {
     Image(ImageContent),
     Video(VideoContent),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageContent {
     pub size_to_parent: bool,
     pub width: f64,
@@ -956,7 +958,7 @@ pub struct ImageContent {
     pub data: Option<String>, // base64 encoded data URI
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VideoContent {
     pub size_to_parent: bool,
     pub width: f64,
@@ -965,7 +967,7 @@ pub struct VideoContent {
 }
 
 // Buttons
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ButtonObject {
     pub uid: Uid,
     pub x: f64,
@@ -1000,27 +1002,27 @@ pub struct ButtonObject {
     pub switch_action: Option<SwitchAction>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ButtonAppearance {
     Opaque,
     Transparent,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ButtonStyle {
     Square,
     Rounded,
     Capsule,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PopupContent {
     TextBox(TextBoxObject),
     Image(ImageContent),
     Video(VideoContent),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Link {
     pub x: f64,
     pub y: f64,
@@ -1030,7 +1032,7 @@ pub struct Link {
     pub target: LinkTarget,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkEffect {
     Dissolve,
     Checkerboard,
@@ -1055,7 +1057,7 @@ pub enum LinkEffect {
     PushRight,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LinkTarget {
     View { view_type: String, order: String },
     Page { view_type: String, order: String, page: String },
@@ -1070,7 +1072,7 @@ pub enum LinkTarget {
     Url(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MenuAction {
     File(FileAction),
     Printing(PrintingAction),
@@ -1080,7 +1082,7 @@ pub enum MenuAction {
     Miscellaneous(MiscellaneousAction),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileAction {
     Open,
     Close,
@@ -1090,14 +1092,14 @@ pub enum FileAction {
     Revert,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PrintingAction {
     PrintSetup,
     Print,
     PrintScreen,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SimulationAction {
     Run,
     Pause,
@@ -1106,7 +1108,7 @@ pub enum SimulationAction {
     RunRestore,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RestoreAction {
     RestoreAll,
     RestoreSliders,
@@ -1119,7 +1121,7 @@ pub enum RestoreAction {
     RestoreLampsGauges,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DataAction {
     DataManager,
     SaveDataNow { run_name: String },
@@ -1127,14 +1129,14 @@ pub enum DataAction {
     ExportNow { resource: String, worksheet: Option<String>, all: bool },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MiscellaneousAction {
     Exit,
     Find,
     RunSpecs,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwitchAction {
     pub entity_name: Option<String>,
     pub group_name: Option<String>,

@@ -9,10 +9,14 @@
 // </dimensions>
 // Each dimension name is identified with a <dim> tag and a REQUIRED name. If the elements are not named, a size attribute greater or equal to one MUST be given. If the elements have names, they appear in order in <elem> nodes. The dimension size MUST NOT appear when elements have names as the number of element names always determines the size of such dimensions.
 
+use serde::{Deserialize, Serialize};
+
 use crate::types::{Validate, ValidationResult};
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Dimensions {
     /// A list of dimension definitions in the XMILE file.
+    #[serde(rename = "dim")]
     pub dims: Vec<Dimension>,
 }
 
@@ -64,13 +68,24 @@ impl Validate for Dimensions {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Dimension {
     /// The name of the dimension.
+    #[serde(rename = "@name")]
     pub name: String,
     /// The size of the dimension (if elements are not named).
+    #[serde(rename = "@size")]
     pub size: Option<usize>,
     /// A list of element names for the dimension (if named).
-    pub elements: Vec<String>,
+    #[serde(rename = "elem", default)]
+    pub elements: Vec<DimensionElement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DimensionElement {
+    /// The name of the element.
+    #[serde(rename = "@name")]
+    pub name: String,
 }
 
 impl Validate for Dimension {
@@ -92,5 +107,12 @@ impl Validate for Dimension {
         }
 
         ValidationResult::Valid(())
+    }
+}
+
+impl Dimension {
+    /// Get the element names as a vector of strings.
+    pub fn element_names(&self) -> Vec<String> {
+        self.elements.iter().map(|e| e.name.clone()).collect()
     }
 }

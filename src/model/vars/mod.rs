@@ -6,6 +6,9 @@ pub mod flow;
 pub mod gf;
 pub mod stock;
 
+#[cfg(feature = "submodels")]
+pub mod module;
+
 use crate::{
     Expression, Identifier, Measure,
     model::object::{Document, Object},
@@ -17,13 +20,33 @@ pub use gf::GraphicalFunction;
 use serde::{Deserialize, Serialize};
 pub use stock::Stock;
 
+#[cfg(feature = "submodels")]
+pub use module::Module;
+
+/// Access type for variables in submodels.
+/// Determines whether a variable is an input, output, or neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AccessType {
+    /// Variable is a submodel input.
+    Input,
+    /// Variable is a submodel output.
+    Output,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     Auxiliary(Auxiliary),
     Stock(Stock),
     Flow(BasicFlow),
     GraphicalFunction(GraphicalFunction),
+    #[cfg(feature = "submodels")]
+    Module(Module),
 }
+
+// Note: Variable enum doesn't implement Serialize/Deserialize directly
+// because in XML, each variant appears as a different tag name.
+// The individual types (Auxiliary, Stock, Flow, etc.) handle their own serialization.
 
 /// All variables have the following REQUIRED property:
 ///

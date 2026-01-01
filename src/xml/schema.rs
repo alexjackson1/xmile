@@ -1,5 +1,9 @@
+use serde::{Deserialize, Deserializer, Serialize};
+
 use crate::{
-    behavior::Behavior, data::Data, dimensions::Dimensions, header::Header, model::vars::Variable,
+    behavior::Behavior, data::Data, dimensions::Dimensions, header::Header, 
+    model::vars::Variable,
+    model::vars::flow::Flow,
     specs::SimulationSpecs, units::ModelUnits, view::{Style, View},
 };
 
@@ -51,10 +55,14 @@ use crate::r#macro::Macro;
 /// inconsistency and SHOULD provide user feedback in doing so. Some
 /// inconsistencies, such as conflicting Macro or Model names MUST be resolved
 /// as detailed in section 2.11.3.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename = "xmile")]
 pub struct XmileFile {
     /// The version of the XMILE specification used in this file.
+    #[serde(rename = "@version")]
     pub version: String,
     /// The XML namespace for XMILE.
+    #[serde(rename = "@xmlns")]
     pub xmlns: String,
     /// The header information for the XMILE file.
     pub header: Header,
@@ -71,16 +79,18 @@ pub struct XmileFile {
     /// Optional data definitions for the XMILE file.
     pub data: Option<Data>,
     /// A list of models defined in the XMILE file.
+    #[serde(rename = "model")]
     pub models: Vec<Model>,
     /// A list of macros defined in the XMILE file.
     #[cfg(feature = "macros")]
+    #[serde(rename = "macro")]
     pub macros: Vec<Macro>,
 }
 
 /// The overall structure of a <model> tag appears below (sub-tags MUST appear in this order):
 ///
 /// ```xml
-/// <model>
+/// <model name="..." resource="...">
 ///    <sim_specs>    <!-- OPTIONAL – see Chapter 2 -->
 ///      ...
 ///    </sim_specs>
@@ -95,24 +105,153 @@ pub struct XmileFile {
 ///    </views>
 /// </model>
 /// ```
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Model {
-    sim_specs: Option<SimulationSpecs>,
-    behavior: Option<Behavior>,
-    variables: Vec<Variable>,
-    views: Option<Views>,
+    /// Optional name attribute for the model (required if model is a submodel).
+    #[serde(rename = "@name")]
+    pub name: Option<String>,
+    /// Optional resource attribute referencing an external file containing the model.
+    #[serde(rename = "@resource")]
+    pub resource: Option<String>,
+    /// Optional simulation specifications for this model.
+    pub sim_specs: Option<SimulationSpecs>,
+    /// Optional behavior specifications for this model.
+    pub behavior: Option<Behavior>,
+    /// The variables defined in this model (REQUIRED).
+    pub variables: Variables,
+    /// Optional views for this model.
+    pub views: Option<Views>,
+}
+
+/// A wrapper for deserializing variables from XML.
+/// The <variables> tag contains a mix of <stock>, <flow>, <aux>, <gf>, and <module> tags.
+#[derive(Debug, PartialEq, Clone)]
+pub struct Variables {
+    pub variables: Vec<Variable>,
+}
+
+impl Variables {
+    pub fn new(variables: Vec<Variable>) -> Self {
+        Variables { variables }
+    }
+}
+
+// Custom deserialization for Variables to handle mixed tag names
+// In XML, <variables> contains a mix of <stock>, <flow>, <aux>, <gf>, and <module> tags
+impl<'de> Deserialize<'de> for Variables {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, MapAccess, Visitor};
+        use std::fmt;
+
+        struct VariablesVisitor;
+
+        impl<'de> Visitor<'de> for VariablesVisitor {
+            type Value = Variables;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a variables element")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut variables = Vec::new();
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "stock" => {
+                            let stock: crate::model::vars::Stock = map.next_value()?;
+                            variables.push(Variable::Stock(stock));
+                        }
+                        "flow" => {
+                            let flow: Flow = map.next_value()?;
+                            match flow {
+                                Flow::Basic(basic) => {
+                                    variables.push(Variable::Flow(basic));
+                                }
+                                _ => {
+                                    return Err(de::Error::custom(
+                                        "Only basic flows are supported in variables section"
+                                    ));
+                                }
+                            }
+                        }
+                        "aux" => {
+                            let aux: crate::model::vars::Auxiliary = map.next_value()?;
+                            variables.push(Variable::Auxiliary(aux));
+                        }
+                        "gf" => {
+                            let gf: crate::model::vars::GraphicalFunction = map.next_value()?;
+                            variables.push(Variable::GraphicalFunction(gf));
+                        }
+                        #[cfg(feature = "submodels")]
+                        "module" => {
+                            let module: crate::model::vars::Module = map.next_value()?;
+                            variables.push(Variable::Module(module));
+                        }
+                        _ => {
+                            // Skip unknown tags (like "group" which might appear)
+                            let _: de::IgnoredAny = map.next_value()?;
+                        }
+                    }
+                }
+
+                Ok(Variables { variables })
+            }
+        }
+
+        deserializer.deserialize_map(VariablesVisitor)
+    }
+}
+
+impl Serialize for Variables {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.variables.len()))?;
+        
+        for var in &self.variables {
+            match var {
+                Variable::Stock(stock) => {
+                    map.serialize_entry("stock", stock)?;
+                }
+                Variable::Flow(flow) => {
+                    map.serialize_entry("flow", flow)?;
+                }
+                Variable::Auxiliary(aux) => {
+                    map.serialize_entry("aux", aux)?;
+                }
+                Variable::GraphicalFunction(gf) => {
+                    map.serialize_entry("gf", gf)?;
+                }
+                #[cfg(feature = "submodels")]
+                Variable::Module(module) => {
+                    map.serialize_entry("module", module)?;
+                }
+            }
+        }
+        map.end()
+    }
 }
 
 /// The <views> tag contains a list of one or many <view> tags which describes
 /// the layout, content and appearance of the user interface and stock and flow diagram.
 /// The <views> tag can also contain an OPTIONAL visible_view attribute specifying
 /// the index of the view which the user desires to be active upon loading of the file.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Views {
     /// The index of the view which should be active upon loading.
     /// The index refers to the full list of views regardless of the view's type.
+    #[serde(rename = "@visible_view")]
     pub visible_view: Option<u32>,
     /// A list of views defined in this model.
+    #[serde(rename = "view")]
     pub views: Vec<View>,
     /// Optional style definitions that apply to all views within this <views> tag.
     pub style: Option<Style>,

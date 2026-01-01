@@ -1,13 +1,19 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
     Expression, Identifier, Measure, UnitEquation,
     model::object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
+    model::vars::AccessType,
 };
 
 use super::Var;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename = "aux")]
 pub struct Auxiliary {
     pub name: Identifier,
+    pub access: Option<AccessType>,
+    pub autoexport: Option<bool>,
     pub documentation: Option<Documentation>,
     pub equation: Expression,
     #[cfg(feature = "mathml")]
