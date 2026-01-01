@@ -1,6 +1,6 @@
 use crate::{
     behavior::Behavior, data::Data, dimensions::Dimensions, header::Header, model::vars::Variable,
-    specs::SimulationSpecs, units::ModelUnits, view::Style,
+    specs::SimulationSpecs, units::ModelUnits, view::{Style, View},
 };
 
 #[cfg(feature = "macros")]
@@ -103,5 +103,17 @@ pub struct Model {
     views: Option<Views>,
 }
 
+/// The <views> tag contains a list of one or many <view> tags which describes
+/// the layout, content and appearance of the user interface and stock and flow diagram.
+/// The <views> tag can also contain an OPTIONAL visible_view attribute specifying
+/// the index of the view which the user desires to be active upon loading of the file.
 #[derive(Debug, PartialEq, Clone)]
-pub struct Views {}
+pub struct Views {
+    /// The index of the view which should be active upon loading.
+    /// The index refers to the full list of views regardless of the view's type.
+    pub visible_view: Option<u32>,
+    /// A list of views defined in this model.
+    pub views: Vec<View>,
+    /// Optional style definitions that apply to all views within this <views> tag.
+    pub style: Option<Style>,
+}

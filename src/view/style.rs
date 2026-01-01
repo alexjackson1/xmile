@@ -16,7 +16,85 @@
 // </style>
 // Note that when style information applies to a specific object, that style cannot be overridden at a lower level (e.g., within a view) by a change to the overall style (i.e., by the options on the <style> tag). Using the example above, to override the color of connectors at a lower level (e.g., the Display), the <connector> tag must explicitly appear in that level’s style block. If it does not appear there, connectors will be magenta at that level by default, even if the style block at that level sets the default color of all objects to green. In other words, object-specific styles at any level above an object take precedence over an overall style defined at any lower level.
 
-pub struct Style {}
+/// Style information that cascades across multiple levels:
+/// 1. Styles for the given entity
+/// 2. Styles for all entities in a specific view
+/// 3. Styles for all entities in a collection of views
+/// 4. Styles for all entities in the XMILE file
+/// 5. Default XMILE-defined styles
+#[derive(Debug, Clone, PartialEq)]
+pub struct Style {
+    /// Global style attributes that apply to all objects
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub border_width: Option<BorderWidth>,
+    pub border_color: Option<Color>,
+    pub border_style: Option<BorderStyle>,
+    pub font_family: Option<String>,
+    pub font_style: Option<FontStyle>,
+    pub font_weight: Option<FontWeight>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub font_color: Option<Color>,
+    pub text_background: Option<Color>,
+    pub font_size: Option<f64>,
+    pub padding: Option<Padding>,
+    /// Object-specific style overrides
+    pub stock: Option<ObjectStyle>,
+    pub flow: Option<ObjectStyle>,
+    pub aux: Option<ObjectStyle>,
+    pub module: Option<ObjectStyle>,
+    pub group: Option<ObjectStyle>,
+    pub connector: Option<ObjectStyle>,
+    pub alias: Option<ObjectStyle>,
+    pub slider: Option<ObjectStyle>,
+    pub knob: Option<ObjectStyle>,
+    pub switch: Option<ObjectStyle>,
+    pub options: Option<ObjectStyle>,
+    pub numeric_input: Option<ObjectStyle>,
+    pub list_input: Option<ObjectStyle>,
+    pub graphical_input: Option<ObjectStyle>,
+    pub numeric_display: Option<ObjectStyle>,
+    pub lamp: Option<ObjectStyle>,
+    pub gauge: Option<ObjectStyle>,
+    pub graph: Option<ObjectStyle>,
+    pub table: Option<ObjectStyle>,
+    pub text_box: Option<ObjectStyle>,
+    pub graphics_frame: Option<ObjectStyle>,
+    pub button: Option<ObjectStyle>,
+}
+
+/// Style attributes for a specific object type
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectStyle {
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub border_width: Option<BorderWidth>,
+    pub border_color: Option<Color>,
+    pub border_style: Option<BorderStyle>,
+    pub font_family: Option<String>,
+    pub font_style: Option<FontStyle>,
+    pub font_weight: Option<FontWeight>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub font_color: Option<Color>,
+    pub text_background: Option<Color>,
+    pub font_size: Option<f64>,
+    pub padding: Option<Padding>,
+}
+
+/// Padding specification supporting 1-4 values
+#[derive(Debug, Clone, PartialEq)]
+pub struct Padding {
+    pub top: f64,
+    pub right: Option<f64>,
+    pub bottom: Option<f64>,
+    pub left: Option<f64>,
+}
 
 // All XMILE display objects provide attributes which describe their look and feel or style. Styles applied to visual XMILE objects are composed of attributes of the following core style objects plus any specific attributes available to that specific type of object.
 
@@ -75,11 +153,13 @@ pub enum StyleTag {
     },
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Color {
     Hex(String),
     Predefined(PredefinedColor),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PredefinedColor {
     Aqua,
     Black,
@@ -122,38 +202,45 @@ impl PredefinedColor {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum BorderWidth {
     Thick,
     Thin,
     Px(f64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderStyle {
     None,
     Solid,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontStyle {
     Normal,
     Italic,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontWeight {
     Normal,
     Bold,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextDecoration {
     Normal,
     Underline,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAlign {
     Left,
     Right,
     Center,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerticalTextAlign {
     Top,
     Bottom,

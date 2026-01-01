@@ -44,10 +44,29 @@ use super::style::{
     VerticalTextAlign,
 };
 
+/// Shape tags allow stock, auxiliary, module, or alias objects to be represented
+/// using a different symbol than the default.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shape {
+    Rectangle {
+        width: f64,
+        height: f64,
+        corner_radius: Option<f64>,
+    },
+    Circle {
+        radius: f64,
+    },
+    NameOnly {
+        width: Option<f64>,
+        height: Option<f64>,
+    },
+}
+
 // The <stock> tag in the context of a <view> tag is used to describe the appearance of an XMILE stock equation object.  Support is REQUIRED for any implementation supporting views.  An example tag is shown below:
 // <stock name=”Bathtub” x=”50” y=”100” width=”45” height=”35” label_side=”top” color=”blue” background=”white” z_index=”1” font_family=”Arial” font_size=”9pt” font_weight=”bold” font_style=”italic” text_decoration=”underline” text_align=”center” vertical_text_align=”center” text_padding=”2px” font_color=”blue” text_border_color=”black” text_border_width=”1px” text_border_style=”solid”/>
 // Descriptions of all the display attributes of a stock can be found in Section 6.1.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct StockObject {
     pub uid: Uid,
     pub name: String,
@@ -55,6 +74,7 @@ pub struct StockObject {
     pub y: Option<f64>, // May be aliased
     pub width: f64,
     pub height: f64,
+    pub shape: Option<Shape>,
     pub color: Option<Color>,
     pub background: Option<Color>,
     pub z_index: Option<i32>,
@@ -85,11 +105,13 @@ pub struct StockObject {
 //     pts REQUIRED – These are the anchor points for the flow specified in model coordinates.  Flows can have any arbitrary number of points, but those points MUST form right angles.
 // Descriptions of all other display attributes of a flow can be found in Section 6.1.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct FlowObject {
     pub uid: Uid,
     pub name: String,
@@ -122,6 +144,7 @@ pub struct FlowObject {
 // <aux name=”water flow rate” x=”50” y=”100” width=”45” height=”35” label_side=”top” color=”blue” background=”white” z_index=”1” font_family=”Arial” font_size=”9pt” font_weight=”bold” font_style=”italic” text_decoration=”underline” text_align=”center” vertical_text_align=”center” text_padding=”2px” font_color=”blue” text_border_color=”black” text_border_width=”1px” text_border_style=”solid”/>
 // Descriptions of all the display attributes of an aux can be found in Section 6.1.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuxObject {
     pub uid: Uid,
     pub name: String,
@@ -129,6 +152,7 @@ pub struct AuxObject {
     pub y: Option<f64>, // May be aliased
     pub width: Option<f64>,
     pub height: Option<f64>,
+    pub shape: Option<Shape>,
     pub color: Option<Color>,
     pub background: Option<Color>,
     pub z_index: Option<i32>,
@@ -153,6 +177,7 @@ pub struct AuxObject {
 // <module name=”Important_Module” x=”50” y=”100” width=”45” height=”35” label_side=”top” color=”blue” background=”white” z_index=”1” font_family=”Arial” font_size=”9pt” font_weight=”bold” font_style=”italic” text_decoration=”underline” text_align=”center” vertical_text_align=”center” text_padding=”2px” font_color=”blue” text_border_color=”black” text_border_width=”1px” text_border_style=”solid”/>
 // Descriptions of all the display attributes of a module can be found in Section 6.1.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModuleObject {
     pub uid: Uid,
     pub name: String,
@@ -160,6 +185,7 @@ pub struct ModuleObject {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    pub shape: Option<Shape>,
     pub color: Option<Color>,
     pub background: Option<Color>,
     pub z_index: Option<i32>,
@@ -188,6 +214,7 @@ pub struct ModuleObject {
 //     locked="…" with true/false (default: false) REQUIRED – When a group is locked, all entities in that group move with the group.  When not locked, moving the group adjusts the items inside of the group (both model and display section objects).
 // Descriptions of all other display attributes of a group can be found in Section 6.1.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupObject {
     pub uid: Uid,
     pub name: String,
@@ -234,23 +261,27 @@ pub struct GroupObject {
 //     delay_mark ="…" with true/false (default: false) OPTIONAL - Describes whether or not this connector is marked with a symbol signifying a delay.
 // Descriptions of all other display attributes of a connector can be found in Section 6.1.
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Polarity {
     Positive,
     Negative,
     None,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum LineStyle {
     Solid,
     Dashed,
     VendorSpecific(String),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Pointer {
     Alias(Uid),
     Name(String),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConnectorObject {
     pub uid: Uid,
     pub x: f64,
@@ -289,12 +320,32 @@ pub struct ConnectorObject {
 //     of REQUIRED – The name of the model entity which this alias represents.  The model entity must be in the same model as the alias.
 // The other attributes of an alias are the same as the object to which the alias refers.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct AliasObject {
     pub uid: Uid,
     pub x: f64,
     pub y: f64,
     pub of: String,
-    // TODO: Additional properties to match the aliased object
+    pub shape: Option<Shape>,
+    // Additional properties to match the aliased object (optional overrides)
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub label_side: Option<String>,
+    pub label_angle: Option<f64>,
 }
 
 // A stacked container is used to allow XMILE display objects to be stacked on top of one another in flipbook form. Support for this tag is OPTIONAL. This allows model creators to create pages of tables or graphs.  Any display object may be placed within a stacked container, but typical objects are graphs and tables.  An example tag is shown below:
@@ -309,6 +360,7 @@ pub struct AliasObject {
 
 // Stacked container objects are REQUIRED to have ONLY the five properties shown above.  Any borders, backgrounds etc. are supplied by their contents.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct StackedContainerObject {
     pub uid: Uid,
     pub x: f64,
@@ -336,6 +388,7 @@ pub struct StackedContainerObject {
 
 // Descriptions of all other display attributes of a slider or knob can be found in Section 6.1.
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct SliderObject {
     pub uid: Uid,
     pub x: f64,
@@ -365,4 +418,726 @@ pub struct SliderObject {
     pub show_number: bool,
     pub show_min_max: bool,
     pub reset_to: Option<(f64, String)>, // (value, after)
+}
+
+// Knobs are the same as sliders but for stocks
+pub type KnobObject = SliderObject;
+
+// Switches and Radio Buttons (Option Groups)
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwitchObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub label_side: Option<String>,
+    pub label_angle: Option<f64>,
+    pub show_name: bool,
+    pub switch_style: SwitchStyle,
+    pub clicking_sound: bool,
+    pub entity_name: Option<String>,
+    pub entity_value: Option<f64>,
+    pub group_name: Option<String>,
+    pub module_name: Option<String>,
+    pub reset_to: Option<(f64, String)>, // (value, after)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchStyle {
+    Toggle,
+    PushButton,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptionsObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub layout: OptionsLayout,
+    pub horizontal_spacing: f64,
+    pub vertical_spacing: f64,
+    pub entities: Vec<OptionEntity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionsLayout {
+    Vertical,
+    Horizontal,
+    Grid,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptionEntity {
+    pub entity_name: String,
+    pub index: Option<String>,
+    pub value: f64,
+}
+
+// Numeric Inputs and List Input Devices
+#[derive(Debug, Clone, PartialEq)]
+pub struct NumericInputObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub entity_name: String,
+    pub entity_index: Option<String>,
+    pub min: f64,
+    pub max: f64,
+    pub precision: Option<f64>,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListInputObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub name: String,
+    pub column_width: f64,
+    pub numeric_inputs: Vec<NumericInputObject>,
+}
+
+// Graphical Inputs
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphicalInputObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub entity_name: String,
+    pub graphical_function: Option<GraphicalFunctionData>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphicalFunctionData {
+    pub xscale_min: f64,
+    pub xscale_max: f64,
+    pub ypts: Vec<f64>,
+}
+
+// Numeric Displays
+#[derive(Debug, Clone, PartialEq)]
+pub struct NumericDisplayObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub entity_name: String,
+    pub show_name: bool,
+    pub retain_ending_value: bool,
+    pub precision: Option<f64>,
+    pub delimit_000s: bool,
+}
+
+// Lamps and Gauges
+#[derive(Debug, Clone, PartialEq)]
+pub struct LampObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub entity_name: String,
+    pub show_name: bool,
+    pub retain_ending_value: bool,
+    pub flash_on_panic: bool,
+    pub zones: Vec<Zone>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GaugeObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub entity_name: String,
+    pub show_name: bool,
+    pub show_number: bool,
+    pub retain_ending_value: bool,
+    pub zones: Vec<Zone>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Zone {
+    pub zone_type: ZoneType,
+    pub color: Color,
+    pub min: f64,
+    pub max: f64,
+    pub sound: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoneType {
+    Normal,
+    Caution,
+    Panic,
+}
+
+// Graphs
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub graph_type: GraphType,
+    pub title: Option<String>,
+    pub doc: Option<String>,
+    pub show_grid: bool,
+    pub num_x_grid_lines: u32,
+    pub num_y_grid_lines: u32,
+    pub num_x_labels: u32,
+    pub num_y_labels: u32,
+    pub x_axis_title: Option<String>,
+    pub right_axis_title: Option<String>,
+    pub right_axis_auto_scale: bool,
+    pub right_axis_multi_scale: bool,
+    pub left_axis_title: Option<String>,
+    pub left_axis_auto_scale: bool,
+    pub left_axis_multi_scale: bool,
+    pub plot_numbers: bool,
+    pub comparative: bool,
+    pub from: Option<f64>,
+    pub to: Option<f64>,
+    pub plots: Vec<Plot>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphType {
+    TimeSeries,
+    Scatter,
+    Bar,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Plot {
+    pub index: u32,
+    pub pen_width: f64,
+    pub pen_style: PenStyle,
+    pub show_y_axis: bool,
+    pub title: String,
+    pub right_axis: bool,
+    pub entity_name: String,
+    pub precision: Option<f64>,
+    pub scale: Option<PlotScale>,
+    pub color: Option<Color>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PenStyle {
+    Solid,
+    Dotted,
+    Dashed,
+    DotDashed,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlotScale {
+    pub min: f64,
+    pub max: f64,
+}
+
+// Tables
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub title: Option<String>,
+    pub doc: Option<String>,
+    pub orientation: TableOrientation,
+    pub column_width: f64,
+    pub blank_column_width: Option<f64>,
+    pub interval: String,
+    pub report_balances: ReportBalances,
+    pub report_flows: ReportFlows,
+    pub comparative: bool,
+    pub wrap_text: bool,
+    pub items: Vec<TableItem>,
+    // Header style attributes (prefixed with "header_")
+    pub header_font_family: Option<String>,
+    pub header_font_size: Option<f64>,
+    pub header_font_weight: Option<FontWeight>,
+    pub header_font_style: Option<FontStyle>,
+    pub header_text_decoration: Option<TextDecoration>,
+    pub header_text_align: Option<TextAlign>,
+    pub header_vertical_text_align: Option<VerticalTextAlign>,
+    pub header_text_background: Option<Color>,
+    pub header_text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub header_font_color: Option<Color>,
+    pub header_text_border_color: Option<Color>,
+    pub header_text_border_width: Option<BorderWidth>,
+    pub header_text_border_style: Option<BorderStyle>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableOrientation {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportBalances {
+    Beginning,
+    Ending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportFlows {
+    Instantaneous,
+    Summed,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableItem {
+    pub item_type: TableItemType,
+    pub entity_name: Option<String>,
+    pub precision: Option<f64>,
+    pub delimit_000s: bool,
+    pub column_width: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableItemType {
+    Time,
+    Variable,
+    Blank,
+}
+
+// Text Boxes
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextBoxObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub appearance: TextBoxAppearance,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextBoxAppearance {
+    Transparent,
+    Normal,
+}
+
+// Graphics Frames
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphicsFrameObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub border_color: Option<Color>,
+    pub border_style: Option<BorderStyle>,
+    pub border_width: Option<BorderWidth>,
+    pub content: GraphicsFrameContent,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GraphicsFrameContent {
+    Image(ImageContent),
+    Video(VideoContent),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageContent {
+    pub size_to_parent: bool,
+    pub width: f64,
+    pub height: f64,
+    pub resource: Option<String>,
+    pub data: Option<String>, // base64 encoded data URI
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoContent {
+    pub size_to_parent: bool,
+    pub width: f64,
+    pub height: f64,
+    pub resource: String,
+}
+
+// Buttons
+#[derive(Debug, Clone, PartialEq)]
+pub struct ButtonObject {
+    pub uid: Uid,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub z_index: Option<i32>,
+    pub font_family: Option<String>,
+    pub font_size: Option<f64>,
+    pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
+    pub text_decoration: Option<TextDecoration>,
+    pub text_align: Option<TextAlign>,
+    pub text_background: Option<Color>,
+    pub vertical_text_align: Option<VerticalTextAlign>,
+    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub font_color: Option<Color>,
+    pub text_border_color: Option<Color>,
+    pub text_border_width: Option<BorderWidth>,
+    pub text_border_style: Option<BorderStyle>,
+    pub appearance: ButtonAppearance,
+    pub style: ButtonStyle,
+    pub label: Option<String>,
+    pub image: Option<ImageContent>,
+    pub clicking_sound: bool,
+    pub sound: Option<String>,
+    pub popup: Option<PopupContent>,
+    pub link: Option<Link>,
+    pub menu_action: Option<MenuAction>,
+    pub switch_action: Option<SwitchAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ButtonAppearance {
+    Opaque,
+    Transparent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ButtonStyle {
+    Square,
+    Rounded,
+    Capsule,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PopupContent {
+    TextBox(TextBoxObject),
+    Image(ImageContent),
+    Video(VideoContent),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Link {
+    pub x: f64,
+    pub y: f64,
+    pub zoom: f64,
+    pub effect: Option<LinkEffect>,
+    pub to_black: bool,
+    pub target: LinkTarget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkEffect {
+    Dissolve,
+    Checkerboard,
+    Bars,
+    WipeLeft,
+    WipeRight,
+    WipeTop,
+    WipeBottom,
+    WipeClockwise,
+    WipeCounterclockwise,
+    IrisIn,
+    IrisOut,
+    DoorsClose,
+    DoorsOpen,
+    VenetianLeft,
+    VenetianRight,
+    VenetianTop,
+    VenetianBottom,
+    PushBottom,
+    PushTop,
+    PushLeft,
+    PushRight,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LinkTarget {
+    View { view_type: String, order: String },
+    Page { view_type: String, order: String, page: String },
+    NextPage,
+    PreviousPage,
+    HomePage,
+    NextView,
+    PreviousView,
+    HomeView,
+    BackPage,
+    BackView,
+    Url(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuAction {
+    File(FileAction),
+    Printing(PrintingAction),
+    Simulation(SimulationAction),
+    Restore(RestoreAction),
+    Data(DataAction),
+    Miscellaneous(MiscellaneousAction),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileAction {
+    Open,
+    Close,
+    Save,
+    SaveAs,
+    SaveAsImage,
+    Revert,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrintingAction {
+    PrintSetup,
+    Print,
+    PrintScreen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulationAction {
+    Run,
+    Pause,
+    Resume,
+    Stop,
+    RunRestore,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreAction {
+    RestoreAll,
+    RestoreSliders,
+    RestoreKnobs,
+    RestoreListInputs,
+    RestoreGraphicalInputs,
+    RestoreSwitches,
+    RestoreNumericDisplays,
+    RestoreGraphsTables,
+    RestoreLampsGauges,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DataAction {
+    DataManager,
+    SaveDataNow { run_name: String },
+    ImportNow { resource: String, worksheet: Option<String>, all: bool },
+    ExportNow { resource: String, worksheet: Option<String>, all: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MiscellaneousAction {
+    Exit,
+    Find,
+    RunSpecs,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwitchAction {
+    pub entity_name: Option<String>,
+    pub group_name: Option<String>,
+    pub module_name: Option<String>,
+    pub value: f64,
 }

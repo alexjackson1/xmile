@@ -27,6 +27,7 @@ pub use equation::{
 pub use model::vars::gf::{GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType};
 pub use namespace::Namespace;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Vendor {
     Anylogic,
     Forio,
