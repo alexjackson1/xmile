@@ -41,9 +41,14 @@ pub fn validate_variable_name_uniqueness(variables: &[Variable]) -> ValidationRe
     
     for (name, indices) in seen_names {
         if indices.len() > 1 {
+            let var_list = if indices.len() == 2 {
+                format!("positions {} and {}", indices[0], indices[1])
+            } else {
+                format!("positions {}", indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "))
+            };
             errors.push(format!(
-                "Variable name '{}' appears {} times at indices: {:?}",
-                name, indices.len(), indices
+                "Duplicate variable name '{}' found {} times in the model (at {}). Each variable must have a unique name. Consider renaming one or more of these variables.",
+                name, indices.len(), var_list
             ));
         }
     }
@@ -134,7 +139,7 @@ pub fn validate_view_uids_unique(view: &crate::view::View) -> ValidationResult {
     for (uid, locations) in seen_uids {
         if locations.len() > 1 {
             errors.push(format!(
-                "UID {} appears {} times in view: {}",
+                "Duplicate UID {} found {} times in the same view (used by: {}). Each display object in a view must have a unique UID. This is likely a serialization error.",
                 uid.value,
                 locations.len(),
                 locations.join(", ")
@@ -227,8 +232,8 @@ pub fn validate_view_object_references(
         let obj_name = stock_obj.name.to_string();
         if !var_names.contains(&obj_name) {
             errors.push(format!(
-                "Stock object '{}' (UID {}) does not reference a valid variable",
-                obj_name, stock_obj.uid.value
+                "Stock display object '{}' (UID {}) references a variable that does not exist. Ensure the variable '{}' is defined in the <variables> section of the model.",
+                obj_name, stock_obj.uid.value, obj_name
             ));
         }
     }
@@ -249,8 +254,8 @@ pub fn validate_view_object_references(
         let obj_name = aux_obj.name.to_string();
         if !var_names.contains(&obj_name) {
             errors.push(format!(
-                "Aux object '{}' (UID {}) does not reference a valid variable",
-                obj_name, aux_obj.uid.value
+                "Auxiliary display object '{}' (UID {}) references a variable that does not exist. Ensure the variable '{}' is defined in the <variables> section of the model.",
+                obj_name, aux_obj.uid.value, obj_name
             ));
         }
     }
@@ -260,8 +265,8 @@ pub fn validate_view_object_references(
         let obj_name = module_obj.name.to_string();
         if !var_names.contains(&obj_name) {
             errors.push(format!(
-                "Module object '{}' (UID {}) does not reference a valid variable",
-                obj_name, module_obj.uid.value
+                "Module display object '{}' (UID {}) references a variable that does not exist. Ensure the variable '{}' is defined in the <variables> section of the model.",
+                obj_name, module_obj.uid.value, obj_name
             ));
         }
     }
@@ -294,10 +299,154 @@ pub fn validate_group_entity_references(
             let entity_name = entity.name.to_string();
             if !var_names.contains(&entity_name) {
                 errors.push(format!(
-                    "Group '{}' references undefined entity '{}'",
+                    "Group '{}' references undefined entity '{}'. The entity must be defined as a variable in the <variables> section before it can be referenced in a group.",
                     group_name, entity_name
                 ));
             }
+        }
+    }
+    
+    if errors.is_empty() {
+        ValidationResult::Valid(())
+    } else {
+        ValidationResult::Invalid(warnings, errors)
+    }
+}
+
+/// Validate array elements for a variable.
+/// 
+/// This validates:
+/// - Subscript indices match dimension bounds
+/// - All required elements are present for non-apply-to-all arrays
+/// - Element ordering and completeness
+#[cfg(feature = "arrays")]
+pub fn validate_array_elements(
+    var_name: &str,
+    var_dims: &crate::model::vars::array::VariableDimensions,
+    elements: &[crate::model::vars::array::ArrayElement],
+    dimensions: &Option<crate::dimensions::Dimensions>,
+) -> ValidationResult {
+    let warnings = Vec::new();
+    let mut errors = Vec::new();
+    
+    // If no dimensions defined, can't validate
+    let Some(dims) = dimensions else {
+        return ValidationResult::Valid(());
+    };
+    
+    // Build a map of dimension name to dimension definition
+    let dim_map: HashMap<String, &crate::dimensions::Dimension> = dims
+        .dims
+        .iter()
+        .map(|d| (d.name.clone(), d))
+        .collect();
+    
+    // Get the dimension definitions for this variable in order
+    let var_dim_defs: Vec<&crate::dimensions::Dimension> = var_dims
+        .dims
+        .iter()
+        .filter_map(|d| dim_map.get(&d.name))
+        .copied()
+        .collect();
+    
+    if var_dim_defs.len() != var_dims.dims.len() {
+        let missing: Vec<String> = var_dims.dims
+            .iter()
+            .filter_map(|d| {
+                if !dim_map.contains_key(&d.name) {
+                    Some(d.name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        errors.push(format!(
+            "Variable '{}' references {} dimension(s) that are not defined: {}. Define these dimensions in the <dimensions> section before using them in variables.",
+            var_name, missing.len(), missing.join(", ")
+        ));
+        return ValidationResult::Invalid(warnings, errors);
+    }
+    
+    // Calculate expected total number of elements
+    let expected_count: usize = var_dim_defs
+        .iter()
+        .map(|dim| dim.size())
+        .product();
+    
+    // Parse and validate each element's subscript
+    let mut seen_subscripts = HashSet::new();
+    let mut parsed_elements = Vec::new();
+    
+    for (idx, element) in elements.iter().enumerate() {
+        // Parse the subscript string (comma-separated indices)
+        let indices: Vec<&str> = element.subscript.split(',').map(|s| s.trim()).collect();
+        
+        if indices.len() != var_dims.dims.len() {
+            errors.push(format!(
+                "Array element {} of variable '{}' has {} index(es) in subscript '{}', but the variable has {} dimension(s). The subscript must provide exactly one index per dimension, separated by commas (e.g., '0,1' for a 2D array).",
+                idx, var_name, indices.len(), element.subscript, var_dims.dims.len()
+            ));
+            continue;
+        }
+        
+        // Validate each index against its dimension
+        for (index_str, dim_def) in indices.iter().zip(var_dim_defs.iter()) {
+            if !dim_def.is_valid_index(index_str) {
+                if let Some(size) = dim_def.size {
+                    // Numbered dimension
+                    errors.push(format!(
+                        "Array element {} of variable '{}': index '{}' for dimension '{}' is out of bounds (must be 0 to {})",
+                        idx, var_name, index_str, dim_def.name, size - 1
+                    ));
+                } else {
+                    // Named dimension
+                    let element_names = dim_def.element_names();
+                    errors.push(format!(
+                        "Array element {} of variable '{}': index '{}' for dimension '{}' is not a valid element name (valid: {:?})",
+                        idx, var_name, index_str, dim_def.name, element_names
+                    ));
+                }
+            }
+        }
+        
+        // Check for duplicate subscripts
+        if !seen_subscripts.insert(element.subscript.clone()) {
+            errors.push(format!(
+                "Array element {} of variable '{}': duplicate subscript '{}'. Each array element must have a unique subscript. Remove the duplicate element.",
+                idx, var_name, element.subscript
+            ));
+        }
+        
+        parsed_elements.push((element.subscript.clone(), indices));
+    }
+    
+    // Check completeness: for non-apply-to-all arrays, all elements must be present
+    if elements.len() != expected_count {
+        errors.push(format!(
+            "Variable '{}' is a non-apply-to-all array but has {} elements, expected {} (dimensions: {:?})",
+            var_name,
+            elements.len(),
+            expected_count,
+            var_dims.dims.iter().map(|d| d.name.clone()).collect::<Vec<_>>()
+        ));
+    }
+    
+    // Check that each element has either eqn or gf (but not both, and at least one)
+    for (idx, element) in elements.iter().enumerate() {
+        match (&element.eqn, &element.gf) {
+            (None, None) => {
+                errors.push(format!(
+                    "Array element {} of variable '{}' with subscript '{}' must have either an <eqn> (equation) or a <gf> (graphical function). Add one of these to define the element's value.",
+                    idx, var_name, element.subscript
+                ));
+            }
+            (Some(_), Some(_)) => {
+                errors.push(format!(
+                    "Array element {} of variable '{}' with subscript '{}' cannot have both an <eqn> (equation) and a <gf> (graphical function). Choose one: either use an equation OR use a graphical function, but not both.",
+                    idx, var_name, element.subscript
+                ));
+            }
+            _ => {} // Valid: has either eqn or gf but not both
         }
     }
     

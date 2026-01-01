@@ -8,13 +8,18 @@ use crate::{
     behavior::Behavior, data::Data, dimensions::Dimensions, header::Header, 
     model::vars::Variable,
     model::vars::flow::Flow,
+    model::vars::stock::Stock,
+    model::vars::gf::{GraphicalFunction, GraphicalFunctionRegistry},
     specs::SimulationSpecs, units::ModelUnits, view::{Style, View},
     types::{Validate, ValidationResult},
     xml::validation::*,
 };
 
 #[cfg(feature = "macros")]
-use crate::r#macro::Macro;
+use crate::r#macro::{Macro, MacroRegistry};
+
+#[cfg(feature = "arrays")]
+use crate::model::vars::ArrayRegistry;
 
 /// A XMILE file contains information about a whole-model, with a
 /// well-specified structure. The file MUST be encoded in UTF-8. The entire
@@ -129,6 +134,558 @@ pub struct Model {
     pub views: Option<Views>,
 }
 
+impl XmileFile {
+    /// Builds a macro registry from the macros defined in this file.
+    /// 
+    /// Returns an empty registry if there are no macros (still useful for checking if macros exist).
+    #[cfg(feature = "macros")]
+    pub fn build_macro_registry(&self) -> MacroRegistry {
+        if self.macros.is_empty() {
+            MacroRegistry::new()
+        } else {
+            MacroRegistry::from_macros(&self.macros)
+        }
+    }
+
+    /// Resolves all function calls in expressions throughout all models in this file.
+    /// 
+    /// This method builds registries from macros and model variables, then resolves
+    /// all function calls in expressions to use the correct FunctionTarget variants.
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if all expressions were resolved successfully, or a vector of error messages if any resolution failed.
+    #[cfg(all(feature = "macros", feature = "arrays"))]
+    pub fn resolve_all_expressions(&mut self) -> Result<(), Vec<String>> {
+        let macro_registry = self.build_macro_registry();
+        let macro_registry_ref = if self.macros.is_empty() { None } else { Some(&macro_registry) };
+
+        let mut all_errors = Vec::new();
+        for model in &mut self.models {
+            let gf_registry = model.build_gf_registry();
+            let array_registry = Some(model.build_array_registry());
+            
+            if let Err(errors) = model.resolve_all_expressions(macro_registry_ref, &gf_registry, array_registry.as_ref()) {
+                all_errors.extend(errors);
+            }
+        }
+
+        if all_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(all_errors)
+        }
+    }
+
+    /// Resolves all function calls in expressions throughout all models in this file.
+    /// 
+    /// This is the version when `macros` is enabled but `arrays` is not.
+    #[cfg(all(feature = "macros", not(feature = "arrays")))]
+    pub fn resolve_all_expressions(&mut self) -> Result<(), Vec<String>> {
+        let macro_registry = self.build_macro_registry();
+        let macro_registry_ref = if self.macros.is_empty() { None } else { Some(&macro_registry) };
+
+        let mut all_errors = Vec::new();
+        for model in &mut self.models {
+            let gf_registry = model.build_gf_registry();
+            
+            if let Err(errors) = model.resolve_all_expressions(macro_registry_ref, &gf_registry) {
+                all_errors.extend(errors);
+            }
+        }
+
+        if all_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(all_errors)
+        }
+    }
+
+    /// Resolves all function calls in expressions throughout all models in this file.
+    /// 
+    /// This is the version when `macros` is disabled but `arrays` is enabled.
+    #[cfg(all(not(feature = "macros"), feature = "arrays"))]
+    pub fn resolve_all_expressions(&mut self) -> Result<(), Vec<String>> {
+        let mut all_errors = Vec::new();
+        for model in &mut self.models {
+            let gf_registry = model.build_gf_registry();
+            let array_registry = Some(model.build_array_registry());
+            
+            if let Err(errors) = model.resolve_all_expressions(&gf_registry, array_registry.as_ref()) {
+                all_errors.extend(errors);
+            }
+        }
+
+        if all_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(all_errors)
+        }
+    }
+
+    /// Resolves all function calls in expressions throughout all models in this file.
+    /// 
+    /// This is the version when both `macros` and `arrays` features are disabled.
+    #[cfg(all(not(feature = "macros"), not(feature = "arrays")))]
+    pub fn resolve_all_expressions(&mut self) -> Result<(), Vec<String>> {
+        let mut all_errors = Vec::new();
+        for model in &mut self.models {
+            let gf_registry = model.build_gf_registry();
+            
+            if let Err(errors) = model.resolve_all_expressions(&gf_registry) {
+                all_errors.extend(errors);
+            }
+        }
+
+        if all_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(all_errors)
+        }
+    }
+}
+
+impl Model {
+    /// Builds a graphical function registry from the variables in this model.
+    /// Only named graphical functions are included in the registry.
+    pub fn build_gf_registry(&self) -> GraphicalFunctionRegistry {
+        let gfs: Vec<GraphicalFunction> = self.variables.variables
+            .iter()
+            .filter_map(|v| {
+                if let Variable::GraphicalFunction(gf) = v {
+                    Some(gf.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        GraphicalFunctionRegistry::from_functions(&gfs)
+    }
+
+    /// Builds an array registry from the variables in this model.
+    /// Returns `None` if the arrays feature is not enabled.
+    #[cfg(feature = "arrays")]
+    pub fn build_array_registry(&self) -> ArrayRegistry {
+        ArrayRegistry::from_variables(&self.variables.variables)
+    }
+
+    /// Resolves all function calls in expressions throughout this model using the provided registries.
+    /// 
+    /// This method iterates through all variables and resolves function calls in their expressions,
+    /// replacing them with properly resolved versions that use the correct FunctionTarget variants.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `macro_registry` - Optional registry of macros (only available when `macros` feature is enabled)
+    /// * `gf_registry` - Registry of named graphical functions
+    /// * `array_registry` - Optional registry of array variables (only available when `arrays` feature is enabled)
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if all expressions were resolved successfully, or a vector of error messages if any resolution failed.
+    #[cfg(all(feature = "macros", feature = "arrays"))]
+    pub fn resolve_all_expressions(
+        &mut self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: &GraphicalFunctionRegistry,
+        array_registry: Option<&ArrayRegistry>,
+    ) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        for var in &mut self.variables.variables {
+            match var {
+                Variable::Auxiliary(aux) => {
+                    match aux.equation.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                        Ok(resolved) => aux.equation = resolved,
+                        Err(e) => errors.push(format!("Error resolving expression in auxiliary '{}': {}", aux.name, e)),
+                    }
+                    // Resolve expressions in array elements
+                    #[cfg(feature = "arrays")]
+                    for element in &mut aux.elements {
+                        if let Some(ref mut eqn) = element.eqn {
+                            match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                Ok(resolved) => *eqn = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in array element of auxiliary '{}': {}", aux.name, e)),
+                            }
+                        }
+                    }
+                }
+                Variable::Stock(stock) => {
+                    match stock {
+                        Stock::Basic(basic) => {
+                            match basic.initial_equation.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                Ok(resolved) => basic.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in stock '{}': {}", basic.name, e)),
+                            }
+                            #[cfg(feature = "arrays")]
+                            for element in &mut basic.elements {
+                                if let Some(ref mut eqn) = element.eqn {
+                                    match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                        Ok(resolved) => *eqn = resolved,
+                                        Err(e) => errors.push(format!("Error resolving expression in array element of stock '{}': {}", basic.name, e)),
+                                    }
+                                }
+                            }
+                        }
+                        Stock::Conveyor(conveyor) => {
+                            match conveyor.initial_equation.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                Ok(resolved) => conveyor.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in conveyor stock '{}': {}", conveyor.name, e)),
+                            }
+                            #[cfg(feature = "arrays")]
+                            for element in &mut conveyor.elements {
+                                if let Some(ref mut eqn) = element.eqn {
+                                    match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                        Ok(resolved) => *eqn = resolved,
+                                        Err(e) => errors.push(format!("Error resolving expression in array element of conveyor stock '{}': {}", conveyor.name, e)),
+                                    }
+                                }
+                            }
+                        }
+                        Stock::Queue(queue) => {
+                            match queue.initial_equation.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                Ok(resolved) => queue.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in queue stock '{}': {}", queue.name, e)),
+                            }
+                            #[cfg(feature = "arrays")]
+                            for element in &mut queue.elements {
+                                if let Some(ref mut eqn) = element.eqn {
+                                    match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                        Ok(resolved) => *eqn = resolved,
+                                        Err(e) => errors.push(format!("Error resolving expression in array element of queue stock '{}': {}", queue.name, e)),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Variable::Flow(flow) => {
+                    if let Some(ref mut eqn) = flow.equation {
+                        match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => errors.push(format!("Error resolving expression in flow '{}': {}", flow.name, e)),
+                        }
+                    }
+                    #[cfg(feature = "arrays")]
+                    for element in &mut flow.elements {
+                        if let Some(ref mut eqn) = element.eqn {
+                            match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                Ok(resolved) => *eqn = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in array element of flow '{}': {}", flow.name, e)),
+                            }
+                        }
+                    }
+                }
+                Variable::GraphicalFunction(gf) => {
+                    if let Some(ref mut eqn) = gf.equation {
+                        match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => {
+                                let name = gf.name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| "unnamed".to_string());
+                                errors.push(format!("Error resolving expression in graphical function '{}': {}", name, e));
+                            }
+                        }
+                    }
+                    #[cfg(feature = "arrays")]
+                    for element in &mut gf.elements {
+                        if let Some(ref mut eqn) = element.eqn {
+                            match eqn.resolve_function_calls(macro_registry, Some(gf_registry), array_registry) {
+                                Ok(resolved) => *eqn = resolved,
+                                Err(e) => {
+                                    let name = gf.name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| "unnamed".to_string());
+                                    errors.push(format!("Error resolving expression in array element of graphical function '{}': {}", name, e));
+                                }
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "submodels")]
+                Variable::Module(_) => {
+                    // Modules may have expressions, but we'll handle them separately if needed
+                }
+                Variable::Group(_) => {
+                    // Groups don't have expressions
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Resolves all function calls in expressions throughout this model using the provided registries.
+    /// 
+    /// This is the version when `macros` is enabled but `arrays` is not.
+    #[cfg(all(feature = "macros", not(feature = "arrays")))]
+    pub fn resolve_all_expressions(
+        &mut self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: &GraphicalFunctionRegistry,
+    ) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        for var in &mut self.variables.variables {
+            match var {
+                Variable::Auxiliary(aux) => {
+                    match aux.equation.resolve_function_calls(macro_registry, Some(gf_registry)) {
+                        Ok(resolved) => aux.equation = resolved,
+                        Err(e) => errors.push(format!("Error resolving expression in auxiliary '{}': {}", aux.name, e)),
+                    }
+                }
+                Variable::Stock(stock) => {
+                    match stock {
+                        Stock::Basic(basic) => {
+                            match basic.initial_equation.resolve_function_calls(macro_registry, Some(gf_registry)) {
+                                Ok(resolved) => basic.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in stock '{}': {}", basic.name, e)),
+                            }
+                        }
+                        Stock::Conveyor(conveyor) => {
+                            match conveyor.initial_equation.resolve_function_calls(macro_registry, Some(gf_registry)) {
+                                Ok(resolved) => conveyor.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in conveyor stock '{}': {}", conveyor.name, e)),
+                            }
+                        }
+                        Stock::Queue(queue) => {
+                            match queue.initial_equation.resolve_function_calls(macro_registry, Some(gf_registry)) {
+                                Ok(resolved) => queue.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in queue stock '{}': {}", queue.name, e)),
+                            }
+                        }
+                    }
+                }
+                Variable::Flow(flow) => {
+                    if let Some(ref mut eqn) = flow.equation {
+                        match eqn.resolve_function_calls(macro_registry, Some(gf_registry)) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => errors.push(format!("Error resolving expression in flow '{}': {}", flow.name, e)),
+                        }
+                    }
+                }
+                Variable::GraphicalFunction(gf) => {
+                    if let Some(ref mut eqn) = gf.equation {
+                        match eqn.resolve_function_calls(macro_registry, Some(gf_registry)) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => {
+                                let name = gf.name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| "unnamed".to_string());
+                                errors.push(format!("Error resolving expression in graphical function '{}': {}", name, e));
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "submodels")]
+                Variable::Module(_) => {}
+                Variable::Group(_) => {}
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Resolves all function calls in expressions throughout this model using the provided registries.
+    /// 
+    /// This is the version when `macros` is disabled but `arrays` is enabled.
+    #[cfg(all(not(feature = "macros"), feature = "arrays"))]
+    pub fn resolve_all_expressions(
+        &mut self,
+        gf_registry: &GraphicalFunctionRegistry,
+        array_registry: Option<&ArrayRegistry>,
+    ) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        for var in &mut self.variables.variables {
+            match var {
+                Variable::Auxiliary(aux) => {
+                    match aux.equation.resolve_function_calls(Some(gf_registry), array_registry) {
+                        Ok(resolved) => aux.equation = resolved,
+                        Err(e) => errors.push(format!("Error resolving expression in auxiliary '{}': {}", aux.name, e)),
+                    }
+                    for element in &mut aux.elements {
+                        if let Some(ref mut eqn) = element.eqn {
+                            match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                                Ok(resolved) => *eqn = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in array element of auxiliary '{}': {}", aux.name, e)),
+                            }
+                        }
+                    }
+                }
+                Variable::Stock(stock) => {
+                    match stock {
+                        Stock::Basic(basic) => {
+                            match basic.initial_equation.resolve_function_calls(Some(gf_registry), array_registry) {
+                                Ok(resolved) => basic.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in stock '{}': {}", basic.name, e)),
+                            }
+                            for element in &mut basic.elements {
+                                if let Some(ref mut eqn) = element.eqn {
+                                    match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                                        Ok(resolved) => *eqn = resolved,
+                                        Err(e) => errors.push(format!("Error resolving expression in array element of stock '{}': {}", basic.name, e)),
+                                    }
+                                }
+                            }
+                        }
+                        Stock::Conveyor(conveyor) => {
+                            match conveyor.initial_equation.resolve_function_calls(Some(gf_registry), array_registry) {
+                                Ok(resolved) => conveyor.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in conveyor stock '{}': {}", conveyor.name, e)),
+                            }
+                            for element in &mut conveyor.elements {
+                                if let Some(ref mut eqn) = element.eqn {
+                                    match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                                        Ok(resolved) => *eqn = resolved,
+                                        Err(e) => errors.push(format!("Error resolving expression in array element of conveyor stock '{}': {}", conveyor.name, e)),
+                                    }
+                                }
+                            }
+                        }
+                        Stock::Queue(queue) => {
+                            match queue.initial_equation.resolve_function_calls(Some(gf_registry), array_registry) {
+                                Ok(resolved) => queue.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in queue stock '{}': {}", queue.name, e)),
+                            }
+                            for element in &mut queue.elements {
+                                if let Some(ref mut eqn) = element.eqn {
+                                    match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                                        Ok(resolved) => *eqn = resolved,
+                                        Err(e) => errors.push(format!("Error resolving expression in array element of queue stock '{}': {}", queue.name, e)),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Variable::Flow(flow) => {
+                    if let Some(ref mut eqn) = flow.equation {
+                        match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => errors.push(format!("Error resolving expression in flow '{}': {}", flow.name, e)),
+                        }
+                    }
+                    for element in &mut flow.elements {
+                        if let Some(ref mut eqn) = element.eqn {
+                            match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                                Ok(resolved) => *eqn = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in array element of flow '{}': {}", flow.name, e)),
+                            }
+                        }
+                    }
+                }
+                Variable::GraphicalFunction(gf) => {
+                    if let Some(ref mut eqn) = gf.equation {
+                        match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => {
+                                let name = gf.name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| "unnamed".to_string());
+                                errors.push(format!("Error resolving expression in graphical function '{}': {}", name, e));
+                            }
+                        }
+                    }
+                    for element in &mut gf.elements {
+                        if let Some(ref mut eqn) = element.eqn {
+                            match eqn.resolve_function_calls(Some(gf_registry), array_registry) {
+                                Ok(resolved) => *eqn = resolved,
+                                Err(e) => {
+                                    let name = gf.name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| "unnamed".to_string());
+                                    errors.push(format!("Error resolving expression in array element of graphical function '{}': {}", name, e));
+                                }
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "submodels")]
+                Variable::Module(_) => {}
+                Variable::Group(_) => {}
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Resolves all function calls in expressions throughout this model using the provided registries.
+    /// 
+    /// This is the version when both `macros` and `arrays` features are disabled.
+    #[cfg(all(not(feature = "macros"), not(feature = "arrays")))]
+    pub fn resolve_all_expressions(
+        &mut self,
+        gf_registry: &GraphicalFunctionRegistry,
+    ) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        for var in &mut self.variables.variables {
+            match var {
+                Variable::Auxiliary(aux) => {
+                    match aux.equation.resolve_function_calls(Some(gf_registry)) {
+                        Ok(resolved) => aux.equation = resolved,
+                        Err(e) => errors.push(format!("Error resolving expression in auxiliary '{}': {}", aux.name, e)),
+                    }
+                }
+                Variable::Stock(stock) => {
+                    match stock {
+                        Stock::Basic(basic) => {
+                            match basic.initial_equation.resolve_function_calls(Some(gf_registry)) {
+                                Ok(resolved) => basic.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in stock '{}': {}", basic.name, e)),
+                            }
+                        }
+                        Stock::Conveyor(conveyor) => {
+                            match conveyor.initial_equation.resolve_function_calls(Some(gf_registry)) {
+                                Ok(resolved) => conveyor.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in conveyor stock '{}': {}", conveyor.name, e)),
+                            }
+                        }
+                        Stock::Queue(queue) => {
+                            match queue.initial_equation.resolve_function_calls(Some(gf_registry)) {
+                                Ok(resolved) => queue.initial_equation = resolved,
+                                Err(e) => errors.push(format!("Error resolving expression in queue stock '{}': {}", queue.name, e)),
+                            }
+                        }
+                    }
+                }
+                Variable::Flow(flow) => {
+                    if let Some(ref mut eqn) = flow.equation {
+                        match eqn.resolve_function_calls(Some(gf_registry)) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => errors.push(format!("Error resolving expression in flow '{}': {}", flow.name, e)),
+                        }
+                    }
+                }
+                Variable::GraphicalFunction(gf) => {
+                    if let Some(ref mut eqn) = gf.equation {
+                        match eqn.resolve_function_calls(Some(gf_registry)) {
+                            Ok(resolved) => *eqn = resolved,
+                            Err(e) => {
+                                let name = gf.name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| "unnamed".to_string());
+                                errors.push(format!("Error resolving expression in graphical function '{}': {}", name, e));
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "submodels")]
+                Variable::Module(_) => {}
+                Variable::Group(_) => {}
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+}
+
 impl Validate for Model {
     fn validate(&self) -> ValidationResult {
         let mut warnings = Vec::new();
@@ -144,10 +701,277 @@ impl Validate for Model {
             }
         }
         
-        // Validate dimension references
-        // TODO: Get dimensions from file-level or model-level dimensions
-        // For now, we'll skip this validation as we need access to the full file context
-        // This would require passing dimensions from XmileFile to Model validation
+        // Validate that all function calls are properly resolved
+        // Note: This validation uses only model-level registries (GFs and arrays).
+        // Macro validation happens at the file level since macros are file-level.
+        let gf_registry = self.build_gf_registry();
+        
+        #[cfg(all(feature = "macros", feature = "arrays"))]
+        {
+            // Note: We can't validate macros here since they're file-level, not model-level
+            // Macro validation should happen at XmileFile::validate()
+            let array_registry = Some(self.build_array_registry());
+            
+            for var in &self.variables.variables {
+                let validation_errors = match var {
+                    Variable::Auxiliary(aux) => {
+                        aux.equation.validate_resolved(None, Some(&gf_registry), array_registry.as_ref())
+                    }
+                    Variable::Stock(stock) => {
+                        match stock {
+                            Stock::Basic(basic) => {
+                                basic.initial_equation.validate_resolved(None, Some(&gf_registry), array_registry.as_ref())
+                            }
+                            Stock::Conveyor(conveyor) => {
+                                conveyor.initial_equation.validate_resolved(None, Some(&gf_registry), array_registry.as_ref())
+                            }
+                            Stock::Queue(queue) => {
+                                queue.initial_equation.validate_resolved(None, Some(&gf_registry), array_registry.as_ref())
+                            }
+                        }
+                    }
+                    Variable::Flow(flow) => {
+                        if let Some(ref eqn) = flow.equation {
+                            eqn.validate_resolved(None, Some(&gf_registry), array_registry.as_ref())
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Variable::GraphicalFunction(gf) => {
+                        if let Some(ref eqn) = gf.equation {
+                            eqn.validate_resolved(None, Some(&gf_registry), array_registry.as_ref())
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                };
+                errors.extend(validation_errors);
+            }
+        }
+        
+        #[cfg(all(feature = "macros", not(feature = "arrays")))]
+        {
+            // Note: We can't validate macros here since they're file-level, not model-level
+            for var in &self.variables.variables {
+                let validation_errors = match var {
+                    Variable::Auxiliary(aux) => {
+                        aux.equation.validate_resolved(None, Some(&gf_registry))
+                    }
+                    Variable::Stock(stock) => {
+                        match stock {
+                            Stock::Basic(basic) => {
+                                basic.initial_equation.validate_resolved(None, Some(&gf_registry))
+                            }
+                            Stock::Conveyor(conveyor) => {
+                                conveyor.initial_equation.validate_resolved(None, Some(&gf_registry))
+                            }
+                            Stock::Queue(queue) => {
+                                queue.initial_equation.validate_resolved(None, Some(&gf_registry))
+                            }
+                        }
+                    }
+                    Variable::Flow(flow) => {
+                        if let Some(ref eqn) = flow.equation {
+                            eqn.validate_resolved(None, Some(&gf_registry))
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Variable::GraphicalFunction(gf) => {
+                        if let Some(ref eqn) = gf.equation {
+                            eqn.validate_resolved(None, Some(&gf_registry))
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                };
+                errors.extend(validation_errors);
+            }
+        }
+        
+        #[cfg(all(not(feature = "macros"), feature = "arrays"))]
+        {
+            let array_registry = Some(self.build_array_registry());
+            
+            for var in &self.variables.variables {
+                let validation_errors = match var {
+                    Variable::Auxiliary(aux) => {
+                        aux.equation.validate_resolved(Some(&gf_registry), array_registry.as_ref())
+                    }
+                    Variable::Stock(stock) => {
+                        match stock {
+                            Stock::Basic(basic) => {
+                                basic.initial_equation.validate_resolved(Some(&gf_registry), array_registry.as_ref())
+                            }
+                            Stock::Conveyor(conveyor) => {
+                                conveyor.initial_equation.validate_resolved(Some(&gf_registry), array_registry.as_ref())
+                            }
+                            Stock::Queue(queue) => {
+                                queue.initial_equation.validate_resolved(Some(&gf_registry), array_registry.as_ref())
+                            }
+                        }
+                    }
+                    Variable::Flow(flow) => {
+                        if let Some(ref eqn) = flow.equation {
+                            eqn.validate_resolved(Some(&gf_registry), array_registry.as_ref())
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Variable::GraphicalFunction(gf) => {
+                        if let Some(ref eqn) = gf.equation {
+                            eqn.validate_resolved(Some(&gf_registry), array_registry.as_ref())
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                };
+                errors.extend(validation_errors);
+            }
+        }
+        
+        #[cfg(all(not(feature = "macros"), not(feature = "arrays")))]
+        {
+            for var in &self.variables.variables {
+                let validation_errors = match var {
+                    Variable::Auxiliary(aux) => {
+                        aux.equation.validate_resolved(Some(&gf_registry))
+                    }
+                    Variable::Stock(stock) => {
+                        match stock {
+                            Stock::Basic(basic) => {
+                                basic.initial_equation.validate_resolved(Some(&gf_registry))
+                            }
+                            Stock::Conveyor(conveyor) => {
+                                conveyor.initial_equation.validate_resolved(Some(&gf_registry))
+                            }
+                            Stock::Queue(queue) => {
+                                queue.initial_equation.validate_resolved(Some(&gf_registry))
+                            }
+                        }
+                    }
+                    Variable::Flow(flow) => {
+                        if let Some(ref eqn) = flow.equation {
+                            eqn.validate_resolved(Some(&gf_registry))
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Variable::GraphicalFunction(gf) => {
+                        if let Some(ref eqn) = gf.equation {
+                            eqn.validate_resolved(Some(&gf_registry))
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                };
+                errors.extend(validation_errors);
+            }
+        }
+        
+        // Validate dimension references and array elements
+        #[cfg(feature = "arrays")]
+        {
+            // Note: Model::validate() doesn't have access to file-level dimensions.
+            // File-level dimension merging is handled in XmileFile::validate().
+            // For now, we can't validate array elements here without file-level context.
+            // This will be handled at the file level.
+            let merged_dimensions = None;
+            match crate::xml::validation::validate_dimension_references(&self.variables.variables, &merged_dimensions) {
+                ValidationResult::Valid(_) => {}
+                ValidationResult::Warnings(_, warns) => warnings.extend(warns),
+                ValidationResult::Invalid(warns, errs) => {
+                    warnings.extend(warns);
+                    errors.extend(errs);
+                }
+            }
+            
+            // Validate array elements for variables that have them
+            for var in &self.variables.variables {
+                let var_name = crate::xml::validation::get_variable_name(var)
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                
+                // Extract dimensions and elements based on variable type
+                // Note: Stock uses Vec<String> for dimensions, others use VariableDimensions
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                let (var_dims, elements): (Option<VariableDimensions>, Option<&Vec<crate::model::vars::array::ArrayElement>>) = match var {
+                    Variable::Auxiliary(aux) => {
+                        (aux.dimensions.clone(), Some(&aux.elements))
+                    }
+                    Variable::Stock(stock) => match stock {
+                        crate::model::vars::stock::Stock::Basic(b) => {
+                            // Convert Vec<String> to VariableDimensions
+                            let dims = b.dimensions.as_ref().map(|names| {
+                                VariableDimensions {
+                                    dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                                }
+                            });
+                            (dims, Some(&b.elements))
+                        }
+                        crate::model::vars::stock::Stock::Conveyor(c) => {
+                            let dims = c.dimensions.as_ref().map(|names| {
+                                VariableDimensions {
+                                    dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                                }
+                            });
+                            (dims, Some(&c.elements))
+                        }
+                        crate::model::vars::stock::Stock::Queue(q) => {
+                            let dims = q.dimensions.as_ref().map(|names| {
+                                VariableDimensions {
+                                    dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                                }
+                            });
+                            (dims, Some(&q.elements))
+                        }
+                    },
+                    Variable::Flow(flow) => {
+                        // Convert Vec<String> to VariableDimensions
+                        let dims = flow.dimensions.as_ref().map(|names| {
+                            VariableDimensions {
+                                dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                            }
+                        });
+                        (dims, Some(&flow.elements))
+                    }
+                    Variable::GraphicalFunction(gf) => {
+                        // Convert Vec<String> to VariableDimensions
+                        let dims = gf.dimensions.as_ref().map(|names| {
+                            VariableDimensions {
+                                dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                            }
+                        });
+                        (dims, Some(&gf.elements))
+                    }
+                    _ => (None, None),
+                };
+                
+                // If variable has dimensions and elements, validate them
+                if let (Some(dims), Some(elems)) = (var_dims, elements) {
+                    if !elems.is_empty() {
+                        // Non-apply-to-all array: validate elements
+                        match crate::xml::validation::validate_array_elements(
+                            &var_name,
+                            &dims,
+                            elems,
+                            &merged_dimensions,
+                        ) {
+                            ValidationResult::Valid(_) => {}
+                            ValidationResult::Warnings(_, warns) => warnings.extend(warns),
+                            ValidationResult::Invalid(warns, errs) => {
+                                warnings.extend(warns);
+                                errors.extend(errs);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         // Validate view object references
         if let Some(ref views) = self.views {

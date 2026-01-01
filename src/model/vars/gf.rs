@@ -33,6 +33,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use std::{
+    collections::HashMap,
     ops::{Index, IndexMut},
     str::FromStr,
 };
@@ -530,7 +531,7 @@ struct RawGraphicalFunction {
     #[cfg(feature = "arrays")]
     #[serde(rename = "dimensions")]
     dimensions: Option<VariableDimensions>,
-    
+
     #[cfg(feature = "arrays")]
     #[serde(rename = "element", default)]
     elements: Vec<ArrayElement>,
@@ -631,6 +632,14 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
 impl From<GraphicalFunction> for RawGraphicalFunction {
     /// Converts a structured GraphicalFunction into raw XML representation.
     fn from(gf: GraphicalFunction) -> Self {
+        RawGraphicalFunction::from(&gf)
+    }
+}
+
+impl From<&GraphicalFunction> for RawGraphicalFunction {
+    /// Converts a structured GraphicalFunction reference into raw XML representation.
+    /// This avoids unnecessary cloning when serializing.
+    fn from(gf: &GraphicalFunction) -> Self {
         // Extract all needed data in a single match to avoid multiple borrows/clones
         // Note: GraphicalFunctionScale is Copy, so we can copy it directly
         let (x_scale, y_scale, y_pts, x_pts) = match &gf.data {
@@ -643,18 +652,23 @@ impl From<GraphicalFunction> for RawGraphicalFunction {
                 y_scale,
                 x_values,
                 y_values,
-            } => (None, *y_scale, Some(y_values.clone()), Some(x_values.clone())),
+            } => (
+                None,
+                *y_scale,
+                Some(y_values.clone()),
+                Some(x_values.clone()),
+            ),
         };
         RawGraphicalFunction {
             name: gf.name.as_ref().map(|n| n.to_string()),
             r#type: gf.r#type.as_ref().map(|t| t.to_string()),
-            equation: gf.equation,
-            mathml_equation: gf.mathml_equation,
-            units: gf.units,
-            documentation: gf.documentation,
-            range: gf.range,
-            scale: gf.scale,
-            format: gf.format,
+            equation: gf.equation.clone(),
+            mathml_equation: gf.mathml_equation.clone(),
+            units: gf.units.clone(),
+            documentation: gf.documentation.clone(),
+            range: gf.range.clone(),
+            scale: gf.scale.clone(),
+            format: gf.format.clone(),
             #[cfg(feature = "arrays")]
             dimensions: gf.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
@@ -666,7 +680,7 @@ impl From<GraphicalFunction> for RawGraphicalFunction {
                 }
             }),
             #[cfg(feature = "arrays")]
-            elements: gf.elements,
+            elements: gf.elements.clone(),
             x_scale,
             y_scale,
             y_pts,
@@ -707,10 +721,83 @@ impl Serialize for GraphicalFunction {
     where
         S: Serializer,
     {
-        // Note: Clone is necessary here because `From<GraphicalFunction>` takes ownership,
-        // but `serialize` only receives `&self`. This is a limitation of the trait design.
-        // Future optimization: Consider implementing `From<&GraphicalFunction>` for serialization.
-        RawGraphicalFunction::from(self.clone()).serialize(serializer)
+        // Use the reference-based conversion to avoid cloning the entire struct
+        RawGraphicalFunction::from(self).serialize(serializer)
+    }
+}
+
+/// Registry for named graphical functions that maps function names to their definitions.
+/// 
+/// This registry is used to resolve graphical function calls in expressions and validate
+/// that GF calls match their definitions (e.g., single parameter requirement).
+#[derive(Debug, Clone, Default)]
+pub struct GraphicalFunctionRegistry {
+    /// Map from GF name (normalized) to GF definition
+    functions: HashMap<Identifier, GraphicalFunction>,
+}
+
+impl GraphicalFunctionRegistry {
+    /// Creates a new empty graphical function registry.
+    pub fn new() -> Self {
+        GraphicalFunctionRegistry {
+            functions: HashMap::new(),
+        }
+    }
+
+    /// Builds a graphical function registry from a list of graphical functions.
+    /// Only named graphical functions (those with a `name` field) are registered.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `functions` - A slice of graphical functions to register
+    /// 
+    /// # Returns
+    /// 
+    /// A new `GraphicalFunctionRegistry` containing all named graphical functions.
+    pub fn from_functions(functions: &[GraphicalFunction]) -> Self {
+        let mut registry = GraphicalFunctionRegistry::new();
+        for gf in functions {
+            if let Some(ref name) = gf.name {
+                registry.register(name.clone(), gf.clone());
+            }
+        }
+        registry
+    }
+
+    /// Registers a named graphical function in the registry.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - The identifier of the graphical function
+    /// * `function` - The graphical function definition to register
+    pub fn register(&mut self, name: Identifier, function: GraphicalFunction) {
+        self.functions.insert(name, function);
+    }
+
+    /// Looks up a graphical function by name.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - The identifier of the graphical function to look up
+    /// 
+    /// # Returns
+    /// 
+    /// `Some(&GraphicalFunction)` if the function is found, `None` otherwise.
+    pub fn get(&self, name: &Identifier) -> Option<&GraphicalFunction> {
+        self.functions.get(name)
+    }
+
+    /// Checks if a graphical function with the given name exists in the registry.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - The identifier to check
+    /// 
+    /// # Returns
+    /// 
+    /// `true` if the function exists, `false` otherwise.
+    pub fn contains(&self, name: &Identifier) -> bool {
+        self.functions.contains_key(name)
     }
 }
 
@@ -2651,8 +2738,8 @@ mod tests {
             #[test]
             fn all_additional() {
                 use crate::{
-                    Expression, Identifier, NumericConstant, UnitEquation,
-                    GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType,
+                    Expression, GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType,
+                    Identifier, NumericConstant, UnitEquation,
                     model::object::{
                         DeviceRange, DeviceScale, DisplayAs, Documentation, FormatOptions,
                     },

@@ -115,4 +115,33 @@ impl Dimension {
     pub fn element_names(&self) -> Vec<String> {
         self.elements.iter().map(|e| e.name.clone()).collect()
     }
+
+    /// Get the size of this dimension.
+    /// 
+    /// Returns the size if it's a numbered dimension, or the number of named elements
+    /// if it's a named dimension.
+    pub fn size(&self) -> usize {
+        if let Some(size) = self.size {
+            size
+        } else {
+            self.elements.len()
+        }
+    }
+
+    /// Check if an index (as string) is valid for this dimension.
+    /// 
+    /// For numbered dimensions, checks if the string parses to a valid number
+    /// within bounds. For named dimensions, checks if it matches an element name.
+    pub fn is_valid_index(&self, index: &str) -> bool {
+        if let Some(size) = self.size {
+            // Numbered dimension
+            if let Ok(num) = index.parse::<usize>() {
+                return num < size;
+            }
+            false
+        } else {
+            // Named dimension
+            self.elements.iter().any(|e| e.name == index)
+        }
+    }
 }

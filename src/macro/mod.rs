@@ -1,5 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+#[cfg(feature = "macros")]
+use std::collections::HashMap;
+
 use crate::{
     equation::{Expression, Identifier},
     model::{
@@ -322,5 +325,110 @@ impl Validate for MacroParameter {
         } else {
             ValidationResult::Invalid(warnings, errors)
         }
+    }
+}
+
+/// Registry for macros that maps macro names to their definitions.
+/// 
+/// This registry is used to resolve macro calls in expressions and validate
+/// that macro calls match their definitions (e.g., parameter counts).
+#[cfg(feature = "macros")]
+#[derive(Debug, Clone, Default)]
+pub struct MacroRegistry {
+    /// Map from macro name (normalized) to macro definition
+    macros: HashMap<Identifier, Macro>,
+}
+
+#[cfg(feature = "macros")]
+impl MacroRegistry {
+    /// Creates a new empty macro registry.
+    pub fn new() -> Self {
+        MacroRegistry {
+            macros: HashMap::new(),
+        }
+    }
+
+    /// Builds a macro registry from a list of macros.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `macros` - A slice of macros to register
+    /// 
+    /// # Returns
+    /// 
+    /// A new `MacroRegistry` containing all the provided macros.
+    pub fn from_macros(macros: &[Macro]) -> Self {
+        let mut registry = MacroRegistry::new();
+        for macro_def in macros {
+            registry.register(macro_def.clone());
+        }
+        registry
+    }
+
+    /// Registers a macro in the registry.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `macro_def` - The macro definition to register
+    pub fn register(&mut self, macro_def: Macro) {
+        self.macros.insert(macro_def.name.clone(), macro_def);
+    }
+
+    /// Looks up a macro by name.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - The identifier of the macro to look up
+    /// 
+    /// # Returns
+    /// 
+    /// `Some(&Macro)` if the macro is found, `None` otherwise.
+    pub fn get(&self, name: &Identifier) -> Option<&Macro> {
+        self.macros.get(name)
+    }
+
+    /// Checks if a macro with the given name exists in the registry.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - The identifier to check
+    /// 
+    /// # Returns
+    /// 
+    /// `true` if the macro exists, `false` otherwise.
+    pub fn contains(&self, name: &Identifier) -> bool {
+        self.macros.contains_key(name)
+    }
+
+    /// Returns the number of parameters expected by a macro.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - The identifier of the macro
+    /// 
+    /// # Returns
+    /// 
+    /// `Some(usize)` if the macro exists, `None` otherwise.
+    /// The count includes all parameters, including those with default values.
+    pub fn parameter_count(&self, name: &Identifier) -> Option<usize> {
+        self.get(name).map(|m| m.parameters.len())
+    }
+
+    /// Returns the number of required parameters (those without default values).
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - The identifier of the macro
+    /// 
+    /// # Returns
+    /// 
+    /// `Some(usize)` if the macro exists, `None` otherwise.
+    pub fn required_parameter_count(&self, name: &Identifier) -> Option<usize> {
+        self.get(name).map(|m| {
+            m.parameters
+                .iter()
+                .take_while(|p| p.default.is_none())
+                .count()
+        })
     }
 }

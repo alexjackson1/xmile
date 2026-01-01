@@ -586,8 +586,9 @@ fn parse_identifier(
     // To avoid conflicts between identifiers in different libraries of
     // functions, each library, whether vendor-specific or user-defined, SHOULD
     // exist within its own namespace.
-    if let Some(dot_pos) = trimmed.rfind('.') {
-        return parse_qualified_identifier(trimmed, dot_pos, options);
+    // Support nested qualification like module.submodel.value
+    if trimmed.contains('.') {
+        return parse_qualified_identifier(trimmed, options);
     }
 
     // Handle Identifier Form, Quoted (3.2.2.1)
@@ -602,21 +603,45 @@ fn parse_identifier(
 }
 
 /// Parses a qualified identifier (namespace.identifier) according to XMILE rules.
+/// Supports nested qualification like module.submodel.value
 fn parse_qualified_identifier(
     input: &str,
-    dot_pos: usize,
     options: IdentifierOptions,
 ) -> Result<Identifier, IdentifierError> {
-    let namespace_part = &input[..dot_pos];
-    let identifier_part = &input[dot_pos + 1..];
-
-    if namespace_part.is_empty() || identifier_part.is_empty() {
+    // Split by dots to get all components
+    let parts: Vec<&str> = input.split('.').collect();
+    
+    if parts.len() < 2 {
         return Err(IdentifierError::InvalidQualifiedName);
     }
 
-    // Parse the identifier part recursively
-    let identifier = parse_identifier(identifier_part, options)?;
-    let namespace_path = Namespace::from_str(namespace_part);
+    // The last part is the identifier, everything before is the namespace path
+    let namespace_parts = &parts[..parts.len() - 1];
+    let identifier_part = parts[parts.len() - 1];
+
+    if identifier_part.is_empty() {
+        return Err(IdentifierError::InvalidQualifiedName);
+    }
+
+    // Validate all namespace parts are non-empty
+    for part in namespace_parts {
+        if part.is_empty() {
+            return Err(IdentifierError::InvalidQualifiedName);
+        }
+    }
+
+    // Parse the identifier part (may be quoted or unquoted)
+    let identifier = if identifier_part.starts_with('"') && identifier_part.ends_with('"') && identifier_part.len() >= 2 {
+        parse_quoted_identifier(identifier_part)?
+    } else {
+        parse_unquoted_identifier(identifier_part, options)?
+    };
+
+    // Build namespace path from all namespace components
+    let namespace_path: Vec<Namespace> = namespace_parts
+        .iter()
+        .map(|part| Namespace::from_part(part))
+        .collect();
 
     Ok(Identifier {
         raw: input.to_string(),
@@ -930,6 +955,31 @@ mod tests {
         assert_eq!(id.namespace_path(), &Namespace::from_str("funcs"));
         assert_eq!(id.unqualified(), "find");
         assert!(id.is_qualified());
+    }
+
+    #[test]
+    fn test_nested_qualified_name() {
+        // Test nested qualification like module.submodel.value
+        let id = Identifier::from_str("module.submodel.value").unwrap();
+        let expected_path = Namespace::from_str("module.submodel");
+        assert_eq!(id.namespace_path(), &expected_path);
+        assert_eq!(id.namespace_path().len(), 2);
+        assert_eq!(id.unqualified(), "value");
+        assert!(id.is_qualified());
+        
+        // Test three-level nesting
+        let id2 = Identifier::from_str("a.b.c.d").unwrap();
+        let expected_path2 = Namespace::from_str("a.b.c");
+        assert_eq!(id2.namespace_path(), &expected_path2);
+        assert_eq!(id2.namespace_path().len(), 3);
+        assert_eq!(id2.unqualified(), "d");
+        
+        // Test with predefined namespaces
+        let id3 = Identifier::from_str("std.user.custom.function").unwrap();
+        let expected_path3 = Namespace::from_str("std.user.custom");
+        assert_eq!(id3.namespace_path(), &expected_path3);
+        assert_eq!(id3.namespace_path().len(), 3);
+        assert_eq!(id3.unqualified(), "function");
     }
 
     #[test]

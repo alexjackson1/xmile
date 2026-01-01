@@ -6,16 +6,16 @@ pub mod common {
     use nom::{
         IResult, Parser,
         branch::alt,
-        bytes::complete::tag,
-        character::complete::{alpha1, alphanumeric1, char, digit1, multispace0},
-        combinator::{map, map_res, opt, recognize},
-        multi::many0,
+        bytes::complete::take_while1,
+        character::complete::{char, digit1, multispace0},
+        combinator::{map, map_res, opt, recognize, verify},
         number::complete::double,
         sequence::{delimited, pair},
     };
 
     use crate::{
-        Identifier, NumericConstant, UnitEquation, equation::identifier::IdentifierOptions,
+        Identifier, NumericConstant, UnitEquation, 
+        equation::identifier::{IdentifierError, IdentifierOptions},
     };
 
     /// Parse whitespace (spaces, tabs, newlines)
@@ -38,15 +38,16 @@ pub mod common {
             )));
         }
         
+        let bytes = input.as_bytes();
         let mut i = 1; // Skip opening quote
         let mut escaped = false;
         
-        while i < input.len() {
-            let ch = input.chars().nth(i).unwrap();
+        while i < bytes.len() {
+            let ch = bytes[i] as char;
             
             if escaped {
                 escaped = false;
-                i += ch.len_utf8();
+                i += 1;
                 continue;
             }
             
@@ -63,7 +64,7 @@ pub mod common {
                 return Ok((remaining, quoted_str));
             }
             
-            i += ch.len_utf8();
+            i += 1;
         }
         
         // No closing quote found
@@ -74,7 +75,7 @@ pub mod common {
     }
 
     /// Parse an identifier (variable name, function name, etc.)
-    /// Supports both quoted and unquoted identifiers
+    /// Supports both quoted and unquoted identifiers, including qualified identifiers with dots
     pub fn identifier(input: &str) -> IResult<&str, Identifier> {
         // Try quoted identifier first (quoted identifiers can contain spaces and special chars)
         alt((
@@ -93,13 +94,29 @@ pub mod common {
                     )
                 },
             ),
-            // Unquoted identifier: identifier_with_underscores
+            // Unquoted identifier: identifier_with_underscores or module.submodel.value
+            // Match a sequence of identifier characters and dots, ensuring dots are followed by valid identifier start
             map_res(
-                recognize(pair(
-                    alt((alpha1, tag("_"))),
-                    many0(alt((alphanumeric1, tag("_")))),
-                )),
-                |s: &str| {
+                verify(
+                    take_while1(|c: char| {
+                        c.is_alphanumeric() || c == '_' || c == '.'
+                    }),
+                    |s: &str| {
+                        // Validate that the string is a valid identifier (including qualified)
+                        // This ensures we don't match things like "123.456" (numbers with decimals)
+                        // or ".something" (starting with dot)
+                        !s.starts_with('.') && !s.ends_with('.') && {
+                            // Ensure dots are followed by valid identifier characters
+                            let parts: Vec<&str> = s.split('.').collect();
+                            parts.iter().all(|part| {
+                                !part.is_empty() && part.chars().next().map_or(false, |first| {
+                                    first.is_alphabetic() || first == '_'
+                                })
+                            })
+                        }
+                    },
+                ),
+                |s: &str| -> Result<Identifier, IdentifierError> {
                     Identifier::parse(
                         s,
                         IdentifierOptions {

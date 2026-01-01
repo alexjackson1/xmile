@@ -7,6 +7,12 @@ use operator::Operator;
 
 use crate::equation::parse::expression;
 
+#[cfg(feature = "macros")]
+use crate::r#macro::MacroRegistry;
+use crate::model::vars::gf::GraphicalFunctionRegistry;
+#[cfg(feature = "arrays")]
+use crate::model::vars::array::ArrayRegistry;
+
 use super::{Identifier, NumericConstant};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -232,6 +238,861 @@ impl Expression {
             }
             Expression::InlineComment(_) => {}
             Expression::Constant(_) => {}
+        }
+    }
+
+    /// Resolves function calls in this expression using macro, graphical function, and array registries.
+    /// 
+    /// This method updates `FunctionTarget` in function calls to distinguish between:
+    /// - Built-in functions (`FunctionTarget::Function`)
+    /// - Macros (`FunctionTarget::Model`)
+    /// - Graphical functions (`FunctionTarget::GraphicalFunction`)
+    /// - Arrays (`FunctionTarget::Array`)
+    /// 
+    /// # Arguments
+    /// 
+    /// * `macro_registry` - Optional registry of macros (only available when `macros` feature is enabled)
+    /// * `gf_registry` - Optional registry of named graphical functions
+    /// * `array_registry` - Optional registry of array variables (only available when `arrays` feature is enabled)
+    /// 
+    /// # Returns
+    /// 
+    /// A new `Expression` with resolved function calls, or an error if validation fails.
+    #[cfg(all(feature = "macros", feature = "arrays"))]
+    pub fn resolve_function_calls(
+        &self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        array_registry: Option<&ArrayRegistry>,
+    ) -> Result<Expression, String> {
+        self.resolve_function_calls_impl(macro_registry, gf_registry, array_registry)
+    }
+
+    /// Resolves function calls in this expression using macro and graphical function registries.
+    /// 
+    /// This is the version when `macros` is enabled but `arrays` is not.
+    #[cfg(all(feature = "macros", not(feature = "arrays")))]
+    pub fn resolve_function_calls(
+        &self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+    ) -> Result<Expression, String> {
+        self.resolve_function_calls_impl(macro_registry, gf_registry, None)
+    }
+
+    /// Resolves function calls in this expression using graphical function and array registries.
+    /// 
+    /// This is the version when `macros` is disabled but `arrays` is enabled.
+    #[cfg(all(not(feature = "macros"), feature = "arrays"))]
+    pub fn resolve_function_calls(
+        &self,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        array_registry: Option<&ArrayRegistry>,
+    ) -> Result<Expression, String> {
+        self.resolve_function_calls_impl(gf_registry, array_registry)
+    }
+
+    /// Resolves function calls in this expression using graphical function registries.
+    /// 
+    /// This is the version when both `macros` and `arrays` features are disabled.
+    #[cfg(all(not(feature = "macros"), not(feature = "arrays")))]
+    pub fn resolve_function_calls(
+        &self,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+    ) -> Result<Expression, String> {
+        self.resolve_function_calls_impl(gf_registry, None)
+    }
+
+    #[cfg(feature = "macros")]
+    fn resolve_function_calls_impl(
+        &self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        #[cfg(feature = "arrays")]
+        array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))]
+        _array_registry: Option<()>,
+    ) -> Result<Expression, String> {
+        match self {
+            Expression::Constant(_) => Ok(self.clone()),
+            Expression::Subscript(id, params) => {
+                let resolved_params: Result<Vec<Expression>, String> = params
+                    .iter()
+                    .map(|p| {
+                        p.resolve_function_calls(
+                            #[cfg(feature = "macros")]
+                            macro_registry,
+                            gf_registry,
+                            #[cfg(feature = "arrays")]
+                            array_registry,
+                        )
+                    })
+                    .collect();
+                Ok(Expression::Subscript(id.clone(), resolved_params?))
+            }
+            Expression::Parentheses(expr) => {
+                let resolved = expr.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(Expression::Parentheses(Box::new(resolved)))
+            }
+            Expression::Exponentiation(lhs, rhs) => {
+                let resolved_lhs = lhs.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_rhs = rhs.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(Expression::Exponentiation(Box::new(resolved_lhs), Box::new(resolved_rhs)))
+            }
+            Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) | Expression::Not(expr) => {
+                let resolved = expr.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(match self {
+                    Expression::UnaryPlus(_) => Expression::UnaryPlus(Box::new(resolved)),
+                    Expression::UnaryMinus(_) => Expression::UnaryMinus(Box::new(resolved)),
+                    Expression::Not(_) => Expression::Not(Box::new(resolved)),
+                    _ => unreachable!(),
+                })
+            }
+            Expression::Multiply(lhs, rhs)
+            | Expression::Divide(lhs, rhs)
+            | Expression::Modulo(lhs, rhs)
+            | Expression::Add(lhs, rhs)
+            | Expression::Subtract(lhs, rhs)
+            | Expression::LessThan(lhs, rhs)
+            | Expression::LessThanOrEq(lhs, rhs)
+            | Expression::GreaterThan(lhs, rhs)
+            | Expression::GreaterThanOrEq(lhs, rhs)
+            | Expression::Equal(lhs, rhs)
+            | Expression::NotEqual(lhs, rhs)
+            | Expression::And(lhs, rhs)
+            | Expression::Or(lhs, rhs) => {
+                let resolved_lhs = lhs.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_rhs = rhs.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(match self {
+                    Expression::Multiply(_, _) => Expression::Multiply(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Divide(_, _) => Expression::Divide(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Modulo(_, _) => Expression::Modulo(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Add(_, _) => Expression::Add(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Subtract(_, _) => Expression::Subtract(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::LessThan(_, _) => Expression::LessThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::LessThanOrEq(_, _) => Expression::LessThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::GreaterThan(_, _) => Expression::GreaterThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::GreaterThanOrEq(_, _) => Expression::GreaterThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Equal(_, _) => Expression::Equal(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::NotEqual(_, _) => Expression::NotEqual(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::And(_, _) => Expression::And(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Or(_, _) => Expression::Or(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    _ => unreachable!(),
+                })
+            }
+            Expression::FunctionCall { target, parameters } => {
+                // Resolve parameters first
+                let resolved_params: Result<Vec<Expression>, String> = parameters
+                    .iter()
+                    .map(|p| {
+                        p.resolve_function_calls(
+                            #[cfg(feature = "macros")]
+                            macro_registry,
+                            gf_registry,
+                            #[cfg(feature = "arrays")]
+                            array_registry,
+                        )
+                    })
+                    .collect();
+                let resolved_params = resolved_params?;
+
+                // Resolve the function target
+                let resolved_target = match target {
+                    FunctionTarget::Function(name) => {
+                        // Check if it's an array (arrays take precedence)
+                        #[cfg(feature = "arrays")]
+                        if let Some(registry) = array_registry {
+                            if registry.contains(&name.to_string()) {
+                                // Validate single parameter requirement (flat index)
+                                if resolved_params.len() != 1 {
+                                    return Err(format!(
+                                        "Array '{}' accessed via function call requires exactly 1 parameter (flat index), but {} were provided",
+                                        name, resolved_params.len()
+                                    ));
+                                }
+                                
+                                return Ok(Expression::FunctionCall {
+                                    target: FunctionTarget::Array(name.clone()),
+                                    parameters: resolved_params,
+                                });
+                            }
+                        }
+
+                        // Check if it's a macro
+                        #[cfg(feature = "macros")]
+                        if let Some(registry) = macro_registry {
+                            if registry.contains(name) {
+                                // Validate parameter count
+                                let param_count = resolved_params.len();
+                                let expected_count = registry.parameter_count(name).unwrap_or(0);
+                                let required_count = registry.required_parameter_count(name).unwrap_or(0);
+                                
+                                if param_count < required_count {
+                                    return Err(format!(
+                                        "Macro '{}' requires at least {} parameters, but {} were provided",
+                                        name, required_count, param_count
+                                    ));
+                                }
+                                if param_count > expected_count {
+                                    return Err(format!(
+                                        "Macro '{}' accepts at most {} parameters, but {} were provided",
+                                        name, expected_count, param_count
+                                    ));
+                                }
+                                
+                                return Ok(Expression::FunctionCall {
+                                    target: FunctionTarget::Model(name.clone()),
+                                    parameters: resolved_params,
+                                });
+                            }
+                        }
+
+                        // Check if it's a graphical function
+                        if let Some(registry) = gf_registry {
+                            if registry.contains(name) {
+                                // Validate single parameter requirement
+                                if resolved_params.len() != 1 {
+                                    return Err(format!(
+                                        "Graphical function '{}' requires exactly 1 parameter, but {} were provided",
+                                        name, resolved_params.len()
+                                    ));
+                                }
+                                
+                                return Ok(Expression::FunctionCall {
+                                    target: FunctionTarget::GraphicalFunction(name.clone()),
+                                    parameters: resolved_params,
+                                });
+                            }
+                        }
+
+                        // Default to built-in function
+                        FunctionTarget::Function(name.clone())
+                    }
+                    // Already resolved, keep as-is
+                    other => other.clone(),
+                };
+
+                Ok(Expression::FunctionCall {
+                    target: resolved_target,
+                    parameters: resolved_params,
+                })
+            }
+            Expression::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let resolved_condition = condition.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_then = then_branch.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_else = else_branch.resolve_function_calls(
+                    #[cfg(feature = "macros")]
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(Expression::IfElse {
+                    condition: Box::new(resolved_condition),
+                    then_branch: Box::new(resolved_then),
+                    else_branch: Box::new(resolved_else),
+                })
+            }
+            Expression::InlineComment(comment) => Ok(Expression::InlineComment(comment.clone())),
+        }
+    }
+
+    #[cfg(not(feature = "macros"))]
+    fn resolve_function_calls_impl(
+        &self,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        #[cfg(feature = "arrays")]
+        array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))]
+        _array_registry: Option<()>,
+    ) -> Result<Expression, String> {
+        match self {
+            Expression::Constant(_) => Ok(self.clone()),
+            Expression::Subscript(id, params) => {
+                let resolved_params: Result<Vec<Expression>, String> = params
+                    .iter()
+                    .map(|p| {
+                        p.resolve_function_calls(
+                            gf_registry,
+                            #[cfg(feature = "arrays")]
+                            array_registry,
+                        )
+                    })
+                    .collect();
+                Ok(Expression::Subscript(id.clone(), resolved_params?))
+            }
+            Expression::Parentheses(expr) => {
+                let resolved = expr.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(Expression::Parentheses(Box::new(resolved)))
+            }
+            Expression::Exponentiation(lhs, rhs) => {
+                let resolved_lhs = lhs.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_rhs = rhs.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(Expression::Exponentiation(Box::new(resolved_lhs), Box::new(resolved_rhs)))
+            }
+            Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) | Expression::Not(expr) => {
+                let resolved = expr.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(match self {
+                    Expression::UnaryPlus(_) => Expression::UnaryPlus(Box::new(resolved)),
+                    Expression::UnaryMinus(_) => Expression::UnaryMinus(Box::new(resolved)),
+                    Expression::Not(_) => Expression::Not(Box::new(resolved)),
+                    _ => unreachable!(),
+                })
+            }
+            Expression::Multiply(lhs, rhs)
+            | Expression::Divide(lhs, rhs)
+            | Expression::Modulo(lhs, rhs)
+            | Expression::Add(lhs, rhs)
+            | Expression::Subtract(lhs, rhs)
+            | Expression::LessThan(lhs, rhs)
+            | Expression::LessThanOrEq(lhs, rhs)
+            | Expression::GreaterThan(lhs, rhs)
+            | Expression::GreaterThanOrEq(lhs, rhs)
+            | Expression::Equal(lhs, rhs)
+            | Expression::NotEqual(lhs, rhs)
+            | Expression::And(lhs, rhs)
+            | Expression::Or(lhs, rhs) => {
+                let resolved_lhs = lhs.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_rhs = rhs.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(match self {
+                    Expression::Multiply(_, _) => Expression::Multiply(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Divide(_, _) => Expression::Divide(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Modulo(_, _) => Expression::Modulo(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Add(_, _) => Expression::Add(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Subtract(_, _) => Expression::Subtract(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::LessThan(_, _) => Expression::LessThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::LessThanOrEq(_, _) => Expression::LessThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::GreaterThan(_, _) => Expression::GreaterThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::GreaterThanOrEq(_, _) => Expression::GreaterThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Equal(_, _) => Expression::Equal(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::NotEqual(_, _) => Expression::NotEqual(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::And(_, _) => Expression::And(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Or(_, _) => Expression::Or(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    _ => unreachable!(),
+                })
+            }
+            Expression::FunctionCall { target, parameters } => {
+                let resolved_params: Result<Vec<Expression>, String> = parameters
+                    .iter()
+                    .map(|p| {
+                        p.resolve_function_calls(
+                            gf_registry,
+                            #[cfg(feature = "arrays")]
+                            array_registry,
+                        )
+                    })
+                    .collect();
+                let resolved_params = resolved_params?;
+
+                let resolved_target = match target {
+                    FunctionTarget::Function(name) => {
+                        // Check if it's an array (arrays take precedence)
+                        #[cfg(feature = "arrays")]
+                        if let Some(registry) = array_registry {
+                            if registry.contains(&name.to_string()) {
+                                // Validate single parameter requirement (flat index)
+                                if resolved_params.len() != 1 {
+                                    return Err(format!(
+                                        "Array '{}' accessed via function call requires exactly 1 parameter (flat index), but {} were provided",
+                                        name, resolved_params.len()
+                                    ));
+                                }
+                                
+                                return Ok(Expression::FunctionCall {
+                                    target: FunctionTarget::Array(name.clone()),
+                                    parameters: resolved_params,
+                                });
+                            }
+                        }
+
+                        // Check if it's a graphical function
+                        if let Some(registry) = gf_registry {
+                            if registry.contains(name) {
+                                if resolved_params.len() != 1 {
+                                    return Err(format!(
+                                        "Graphical function '{}' requires exactly 1 parameter, but {} were provided",
+                                        name, resolved_params.len()
+                                    ));
+                                }
+                                
+                                return Ok(Expression::FunctionCall {
+                                    target: FunctionTarget::GraphicalFunction(name.clone()),
+                                    parameters: resolved_params,
+                                });
+                            }
+                        }
+
+                        FunctionTarget::Function(name.clone())
+                    }
+                    other => other.clone(),
+                };
+
+                Ok(Expression::FunctionCall {
+                    target: resolved_target,
+                    parameters: resolved_params,
+                })
+            }
+            Expression::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let resolved_condition = condition.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_then = then_branch.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                let resolved_else = else_branch.resolve_function_calls(
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                )?;
+                Ok(Expression::IfElse {
+                    condition: Box::new(resolved_condition),
+                    then_branch: Box::new(resolved_then),
+                    else_branch: Box::new(resolved_else),
+                })
+            }
+            Expression::InlineComment(comment) => Ok(Expression::InlineComment(comment.clone())),
+        }
+    }
+
+    /// Validates that all function calls are properly resolved.
+    /// 
+    /// After expression resolution, any `FunctionTarget::Function` call that matches
+    /// a name in the provided registries indicates a resolution failure.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `macro_registry` - Optional registry of macros (only available when `macros` feature is enabled)
+    /// * `gf_registry` - Registry of named graphical functions
+    /// * `array_registry` - Optional registry of array variables (only available when `arrays` feature is enabled)
+    /// 
+    /// # Returns
+    /// 
+    /// A vector of error messages describing any unresolved function calls, or an empty vector if all are resolved.
+    #[cfg(all(feature = "macros", feature = "arrays"))]
+    pub fn validate_resolved(
+        &self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        array_registry: Option<&ArrayRegistry>,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        self.validate_resolved_impl(macro_registry, gf_registry, array_registry, &mut errors);
+        errors
+    }
+
+    /// Validates that all function calls are properly resolved.
+    /// 
+    /// This is the version when `macros` is enabled but `arrays` is not.
+    #[cfg(all(feature = "macros", not(feature = "arrays")))]
+    pub fn validate_resolved(
+        &self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        self.validate_resolved_impl(macro_registry, gf_registry, None, &mut errors);
+        errors
+    }
+
+    /// Validates that all function calls are properly resolved.
+    /// 
+    /// This is the version when `macros` is disabled but `arrays` is enabled.
+    #[cfg(all(not(feature = "macros"), feature = "arrays"))]
+    pub fn validate_resolved(
+        &self,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        array_registry: Option<&ArrayRegistry>,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        self.validate_resolved_impl(None, gf_registry, array_registry, &mut errors);
+        errors
+    }
+
+    /// Validates that all function calls are properly resolved.
+    /// 
+    /// This is the version when both `macros` and `arrays` features are disabled.
+    #[cfg(all(not(feature = "macros"), not(feature = "arrays")))]
+    pub fn validate_resolved(
+        &self,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        self.validate_resolved_impl(None, gf_registry, None, &mut errors);
+        errors
+    }
+
+    #[cfg(feature = "macros")]
+    fn validate_resolved_impl(
+        &self,
+        macro_registry: Option<&MacroRegistry>,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        #[cfg(feature = "arrays")]
+        array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))]
+        _array_registry: Option<()>,
+        errors: &mut Vec<String>,
+    ) {
+        match self {
+            Expression::Constant(_) | Expression::InlineComment(_) => {}
+            Expression::Subscript(_, params) => {
+                for param in params {
+                    param.validate_resolved_impl(
+                        macro_registry,
+                        gf_registry,
+                        #[cfg(feature = "arrays")]
+                        array_registry,
+                        errors,
+                    );
+                }
+            }
+            Expression::FunctionCall { parameters, .. } => {
+                for param in parameters {
+                    param.validate_resolved_impl(
+                        macro_registry,
+                        gf_registry,
+                        #[cfg(feature = "arrays")]
+                        array_registry,
+                        errors,
+                    );
+                }
+                // Check the function target itself
+                if let Expression::FunctionCall { target, .. } = self {
+                    if let function::FunctionTarget::Function(name) = target {
+                        // Check if this should have been resolved to a macro
+                        if let Some(registry) = macro_registry {
+                            if registry.contains(name) {
+                                errors.push(format!(
+                                    "Function call '{}' should have been resolved to a macro but remains as FunctionTarget::Function",
+                                    name
+                                ));
+                                return; // Don't check other registries if it's a macro
+                            }
+                        }
+                        
+                        // Check if this should have been resolved to a graphical function
+                        if let Some(registry) = gf_registry {
+                            if registry.contains(name) {
+                                errors.push(format!(
+                                    "Function call '{}' should have been resolved to a graphical function but remains as FunctionTarget::Function",
+                                    name
+                                ));
+                                return; // Don't check array registry if it's a GF
+                            }
+                        }
+                        
+                        // Check if this should have been resolved to an array
+                        #[cfg(feature = "arrays")]
+                        if let Some(registry) = array_registry {
+                            if registry.contains(&name.to_string()) {
+                                errors.push(format!(
+                                    "Function call '{}' should have been resolved to an array but remains as FunctionTarget::Function",
+                                    name
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            Expression::Parentheses(expr)
+            | Expression::Exponentiation(expr, _)
+            | Expression::UnaryPlus(expr)
+            | Expression::UnaryMinus(expr)
+            | Expression::Not(expr) => {
+                expr.validate_resolved_impl(
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    errors,
+                );
+            }
+            Expression::Multiply(lhs, rhs)
+            | Expression::Divide(lhs, rhs)
+            | Expression::Modulo(lhs, rhs)
+            | Expression::Add(lhs, rhs)
+            | Expression::Subtract(lhs, rhs)
+            | Expression::LessThan(lhs, rhs)
+            | Expression::LessThanOrEq(lhs, rhs)
+            | Expression::GreaterThan(lhs, rhs)
+            | Expression::GreaterThanOrEq(lhs, rhs)
+            | Expression::Equal(lhs, rhs)
+            | Expression::NotEqual(lhs, rhs)
+            | Expression::And(lhs, rhs)
+            | Expression::Or(lhs, rhs) => {
+                lhs.validate_resolved_impl(
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    errors,
+                );
+                rhs.validate_resolved_impl(
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    errors,
+                );
+            }
+            Expression::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                condition.validate_resolved_impl(
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    errors,
+                );
+                then_branch.validate_resolved_impl(
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    errors,
+                );
+                else_branch.validate_resolved_impl(
+                    macro_registry,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    errors,
+                );
+            }
+        }
+    }
+
+    #[cfg(not(feature = "macros"))]
+    fn validate_resolved_impl(
+        &self,
+        _macro_registry: Option<()>,
+        gf_registry: Option<&GraphicalFunctionRegistry>,
+        #[cfg(feature = "arrays")]
+        array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))]
+        _array_registry: Option<()>,
+        errors: &mut Vec<String>,
+    ) {
+        match self {
+            Expression::Constant(_) | Expression::InlineComment(_) => {}
+            Expression::Subscript(_, params) => {
+                for param in params {
+                    param.validate_resolved_impl(
+                        None,
+                        gf_registry,
+                        #[cfg(feature = "arrays")]
+                        array_registry,
+                        #[cfg(not(feature = "arrays"))]
+                        None,
+                        errors,
+                    );
+                }
+            }
+            Expression::FunctionCall { parameters, .. } => {
+                for param in parameters {
+                    param.validate_resolved_impl(
+                        None,
+                        gf_registry,
+                        #[cfg(feature = "arrays")]
+                        array_registry,
+                        #[cfg(not(feature = "arrays"))]
+                        None,
+                        errors,
+                    );
+                }
+                // Check the function target itself
+                if let Expression::FunctionCall { target, .. } = self {
+                    if let function::FunctionTarget::Function(name) = target {
+                        // Check if this should have been resolved to a graphical function
+                        if let Some(registry) = gf_registry {
+                            if registry.contains(name) {
+                                errors.push(format!(
+                                    "Function call '{}' should have been resolved to a graphical function but remains as FunctionTarget::Function",
+                                    name
+                                ));
+                                return; // Don't check array registry if it's a GF
+                            }
+                        }
+                        
+                        // Check if this should have been resolved to an array
+                        #[cfg(feature = "arrays")]
+                        if let Some(registry) = array_registry {
+                            if registry.contains(&name.to_string()) {
+                                errors.push(format!(
+                                    "Function call '{}' should have been resolved to an array but remains as FunctionTarget::Function",
+                                    name
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            Expression::Parentheses(expr)
+            | Expression::Exponentiation(expr, _)
+            | Expression::UnaryPlus(expr)
+            | Expression::UnaryMinus(expr)
+            | Expression::Not(expr) => {
+                expr.validate_resolved_impl(
+                    None,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
+                    errors,
+                );
+            }
+            Expression::Multiply(lhs, rhs)
+            | Expression::Divide(lhs, rhs)
+            | Expression::Modulo(lhs, rhs)
+            | Expression::Add(lhs, rhs)
+            | Expression::Subtract(lhs, rhs)
+            | Expression::LessThan(lhs, rhs)
+            | Expression::LessThanOrEq(lhs, rhs)
+            | Expression::GreaterThan(lhs, rhs)
+            | Expression::GreaterThanOrEq(lhs, rhs)
+            | Expression::Equal(lhs, rhs)
+            | Expression::NotEqual(lhs, rhs)
+            | Expression::And(lhs, rhs)
+            | Expression::Or(lhs, rhs) => {
+                lhs.validate_resolved_impl(
+                    None,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
+                    errors,
+                );
+                rhs.validate_resolved_impl(
+                    None,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
+                    errors,
+                );
+            }
+            Expression::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                condition.validate_resolved_impl(
+                    None,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
+                    errors,
+                );
+                then_branch.validate_resolved_impl(
+                    None,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
+                    errors,
+                );
+                else_branch.validate_resolved_impl(
+                    None,
+                    gf_registry,
+                    #[cfg(feature = "arrays")]
+                    array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
+                    errors,
+                );
+            }
         }
     }
 }

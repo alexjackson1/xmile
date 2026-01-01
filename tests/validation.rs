@@ -28,7 +28,7 @@ fn test_validate_variable_name_uniqueness() {
     
     assert!(result.is_invalid());
     if let xmile::types::ValidationResult::Invalid(_, errors) = result {
-        assert!(errors.iter().any(|e| e.contains("TestStock") && e.contains("appears")));
+        assert!(errors.iter().any(|e| e.contains("TestStock") && (e.contains("Duplicate") || e.contains("found"))));
     } else {
         panic!("Expected Invalid result");
     }
@@ -92,7 +92,7 @@ fn test_validate_view_object_references() {
     
     assert!(result.is_invalid());
     if let xmile::types::ValidationResult::Invalid(_, errors) = result {
-        assert!(errors.iter().any(|e| e.contains("NonExistentStock") && e.contains("does not reference")));
+        assert!(errors.iter().any(|e| e.contains("NonExistentStock") && e.contains("references a variable that does not exist")));
     } else {
         panic!("Expected Invalid result");
     }
