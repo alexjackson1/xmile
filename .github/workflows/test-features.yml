@@ -29,13 +29,10 @@ jobs:
           - "arrays,conveyors,queues,submodels,macros,mathml"
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Check compilation
         run: |
