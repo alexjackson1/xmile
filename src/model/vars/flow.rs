@@ -4,10 +4,14 @@ use thiserror::Error;
 use crate::{
     Expression, Identifier, Measure, UnitEquation,
     model::{
+        events::EventPoster,
         object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
         vars::{AccessType, NonNegativeContent},
     },
 };
+
+#[cfg(feature = "arrays")]
+use crate::model::vars::array::{ArrayElement, VariableDimensions};
 
 use super::Var;
 
@@ -65,6 +69,17 @@ struct RawFlow {
     scale: Option<DeviceScale>,
     #[serde(rename = "format")]
     format: Option<FormatOptions>,
+
+    #[cfg(feature = "arrays")]
+    #[serde(rename = "dimensions")]
+    dimensions: Option<VariableDimensions>,
+    
+    #[cfg(feature = "arrays")]
+    #[serde(rename = "element", default)]
+    elements: Vec<ArrayElement>,
+    
+    #[serde(rename = "event_poster")]
+    event_poster: Option<EventPoster>,
 }
 
 enum FlowKind {
@@ -166,6 +181,16 @@ impl From<&BasicFlow> for RawFlow {
             range: flow.range,
             scale: flow.scale,
             format: flow.format,
+            #[cfg(feature = "arrays")]
+            dimensions: flow.dimensions.as_ref().map(|dims| {
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                VariableDimensions {
+                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                }
+            }),
+            #[cfg(feature = "arrays")]
+            elements: flow.elements.clone(),
+            event_poster: flow.event_poster.clone(),
         }
     }
 }
@@ -190,6 +215,16 @@ impl From<&QueueOverflow> for RawFlow {
             range: flow.range,
             scale: flow.scale,
             format: flow.format,
+            #[cfg(feature = "arrays")]
+            dimensions: flow.dimensions.as_ref().map(|dims| {
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                VariableDimensions {
+                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                }
+            }),
+            #[cfg(feature = "arrays")]
+            elements: flow.elements.clone(),
+            event_poster: flow.event_poster.clone(),
         }
     }
 }
@@ -214,6 +249,16 @@ impl From<&ConveyorLeakage> for RawFlow {
             range: flow.range,
             scale: flow.scale,
             format: flow.format,
+            #[cfg(feature = "arrays")]
+            dimensions: flow.dimensions.as_ref().map(|dims| {
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                VariableDimensions {
+                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                }
+            }),
+            #[cfg(feature = "arrays")]
+            elements: flow.elements.clone(),
+            event_poster: flow.event_poster.clone(),
         }
     }
 }
@@ -272,6 +317,17 @@ pub struct BasicFlow {
     pub range: Option<DeviceRange>,
     pub scale: Option<DeviceScale>,
     pub format: Option<FormatOptions>,
+
+    /// The dimensions for this flow (if it's an array).
+    #[cfg(feature = "arrays")]
+    pub dimensions: Option<Vec<String>>,
+
+    /// Array elements for non-apply-to-all arrays.
+    #[cfg(feature = "arrays")]
+    pub elements: Vec<ArrayElement>,
+
+    /// Optional event poster for triggering events based on flow values.
+    pub event_poster: Option<EventPoster>,
 }
 
 // BasicFlow serializes/deserializes via RawFlow
@@ -351,6 +407,11 @@ impl From<RawFlow> for BasicFlow {
             range: raw.range,
             scale: raw.scale,
             format: raw.format,
+            #[cfg(feature = "arrays")]
+            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            #[cfg(feature = "arrays")]
+            elements: raw.elements,
+            event_poster: raw.event_poster,
         }
     }
 }
@@ -374,6 +435,17 @@ pub struct QueueOverflow {
     pub range: Option<DeviceRange>,
     pub scale: Option<DeviceScale>,
     pub format: Option<FormatOptions>,
+
+    /// The dimensions for this queue overflow flow (if it's an array).
+    #[cfg(feature = "arrays")]
+    pub dimensions: Option<Vec<String>>,
+
+    /// Array elements for non-apply-to-all arrays.
+    #[cfg(feature = "arrays")]
+    pub elements: Vec<ArrayElement>,
+
+    /// Optional event poster for triggering events based on flow values.
+    pub event_poster: Option<EventPoster>,
 }
 
 impl Var<'_> for QueueOverflow {
@@ -431,6 +503,11 @@ impl From<RawFlow> for QueueOverflow {
             range: raw.range,
             scale: raw.scale,
             format: raw.format,
+            #[cfg(feature = "arrays")]
+            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            #[cfg(feature = "arrays")]
+            elements: raw.elements,
+            event_poster: raw.event_poster,
         }
     }
 }
@@ -459,6 +536,17 @@ pub struct ConveyorLeakage {
     pub range: Option<DeviceRange>,
     pub scale: Option<DeviceScale>,
     pub format: Option<FormatOptions>,
+
+    /// The dimensions for this conveyor leakage flow (if it's an array).
+    #[cfg(feature = "arrays")]
+    pub dimensions: Option<Vec<String>>,
+
+    /// Array elements for non-apply-to-all arrays.
+    #[cfg(feature = "arrays")]
+    pub elements: Vec<ArrayElement>,
+
+    /// Optional event poster for triggering events based on flow values.
+    pub event_poster: Option<EventPoster>,
 }
 
 impl Var<'_> for ConveyorLeakage {
@@ -525,6 +613,11 @@ impl TryFrom<RawFlow> for ConveyorLeakage {
             range: raw.range,
             scale: raw.scale,
             format: raw.format,
+            #[cfg(feature = "arrays")]
+            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            #[cfg(feature = "arrays")]
+            elements: raw.elements,
+            event_poster: raw.event_poster,
         })
     }
 }
@@ -565,7 +658,8 @@ mod tests {
 
         match flow {
             Flow::Basic(basic_flow) => {
-                assert_eq!(basic_flow.name.raw(), "\"unit_converter\""); // TODO
+                // Note: raw() preserves quotes as they appear in XML
+                assert_eq!(basic_flow.name.raw(), "\"unit_converter\"");
                 assert!(basic_flow.equation.is_some());
                 // assert_eq!(basic_flow.equation.unwrap(), "base_flow");
                 assert!(basic_flow.multiplier.is_some());
@@ -642,7 +736,8 @@ mod tests {
 
         match flow {
             Flow::ConveyorLeakage(conveyor_leakage) => {
-                assert_eq!(conveyor_leakage.name.raw(), "\"shrinking\""); // TODO
+                // Note: raw() preserves quotes as they appear in XML
+                assert_eq!(conveyor_leakage.name.raw(), "\"shrinking\"");
                 assert!(conveyor_leakage.equation.is_none());
                 assert!(conveyor_leakage.leak.is_none()); // No fraction specified
                 assert!(conveyor_leakage.leak_integers.is_none());
@@ -688,7 +783,8 @@ mod tests {
 
         match flow {
             Flow::ConveyorLeakage(conveyor_leakage) => {
-                assert_eq!(conveyor_leakage.name.raw(), "\"complex_leak\""); // TODO
+                // Note: raw() preserves quotes as they appear in XML
+                assert_eq!(conveyor_leakage.name.raw(), "\"complex_leak\"");
                 assert!(conveyor_leakage.equation.is_some());
                 // assert_eq!(conveyor_leakage.equation.unwrap(), "some_calculation");
                 assert!(conveyor_leakage.leak.is_some());
@@ -749,7 +845,8 @@ mod tests {
 
         match flow {
             Flow::Basic(basic_flow) => {
-                assert_eq!(basic_flow.name.raw(), "\"minimal_flow\""); // TODO
+                // Note: raw() preserves quotes as they appear in XML
+                assert_eq!(basic_flow.name.raw(), "\"minimal_flow\"");
                 assert!(basic_flow.equation.is_none());
                 assert!(basic_flow.multiplier.is_none());
                 assert!(basic_flow.non_negative.is_none());
@@ -793,7 +890,8 @@ mod tests {
 
         match flow {
             Flow::Basic(basic_flow) => {
-                assert_eq!(basic_flow.name.raw(), "\"flow with spaces\""); // TODO
+                // Note: raw() preserves quotes as they appear in XML
+                assert_eq!(basic_flow.name.raw(), "\"flow with spaces\"");
             }
             _ => panic!("Expected Basic flow"),
         }

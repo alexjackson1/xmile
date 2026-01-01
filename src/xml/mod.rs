@@ -47,14 +47,18 @@
 // Display objects do not have names or any other way to specifically refer to individual objects. Therefore any display object which is referred to anywhere else in the XMILE file MUST provide a uid="<int>" attribute. This attribute is a unique linearly increasing integer which gives each display object a way to be referred to specifically while reading in an XMILE file. UIDs are NOT REQUIRED to be stable across successive reads and writes. Objects requiring a uid are listed in Chapter 6 of this specification. UIDs MUST be unique per XMILE model.
 
 pub mod schema;
+pub mod validation;
+pub mod errors;
 
 pub use schema::{XmileFile, Model, Views};
+pub use errors::{ErrorCollection, ErrorContext, ToXmileError, XmileError};
 
 use std::io::Read;
 use std::path::Path;
 use std::fs::File;
 
 use thiserror::Error;
+use crate::types::Validate;
 
 #[derive(Debug, Error)]
 pub enum ParseError {
@@ -73,10 +77,37 @@ impl XmileFile {
             .map_err(|e| ParseError::Deserialize(e.to_string()))
     }
 
+    /// Parse an XMILE file from a string with enhanced error reporting.
+    pub fn from_str_with_context(xml: &str) -> Result<Self, XmileError> {
+        serde_xml_rs::from_str(xml).map_err(|e| {
+            // Try to extract line number from error message if available
+            let error_str = e.to_string();
+            let context = extract_context_from_error(&error_str);
+            
+            XmileError::Deserialize {
+                message: error_str,
+                context,
+            }
+        })
+    }
+
     /// Parse an XMILE file from a reader.
     pub fn from_reader<R: Read>(reader: R) -> Result<Self, ParseError> {
         serde_xml_rs::from_reader(reader)
             .map_err(|e| ParseError::Deserialize(e.to_string()))
+    }
+
+    /// Parse an XMILE file from a reader with enhanced error reporting.
+    pub fn from_reader_with_context<R: Read>(reader: R) -> Result<Self, XmileError> {
+        serde_xml_rs::from_reader(reader).map_err(|e| {
+            let error_str = e.to_string();
+            let context = extract_context_from_error(&error_str);
+            
+            XmileError::Deserialize {
+                message: error_str,
+                context,
+            }
+        })
     }
 
     /// Parse an XMILE file from a file path.
@@ -84,4 +115,70 @@ impl XmileFile {
         let file = File::open(path)?;
         Self::from_reader(file)
     }
+
+    /// Parse an XMILE file from a file path with enhanced error reporting.
+    pub fn from_file_with_context<P: AsRef<Path>>(path: P) -> Result<Self, XmileError> {
+        let path_buf = path.as_ref().to_path_buf();
+        let file = File::open(&path_buf)?;
+        
+        serde_xml_rs::from_reader(file).map_err(|e| {
+            let error_str = e.to_string();
+            let mut context = extract_context_from_error(&error_str);
+            context.file_path = Some(path_buf);
+            
+            XmileError::Deserialize {
+                message: error_str,
+                context,
+            }
+        })
+    }
+
+    /// Validate the parsed XMILE file and return detailed errors if validation fails.
+    pub fn validate(&self) -> Result<(), XmileError> {
+        let mut error_collection = ErrorCollection::new();
+        
+        for (idx, model) in self.models.iter().enumerate() {
+            let context = ErrorContext::new()
+                .with_parsing(format!("model[{}]", idx));
+            
+            let validation_result = model.validate();
+            if validation_result.is_invalid() {
+                error_collection.push(validation_result.to_xmile_error(context));
+            }
+        }
+        
+        if let Some(error) = error_collection.into_error() {
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Extract context information from error messages (line numbers, etc.).
+fn extract_context_from_error(error_str: &str) -> ErrorContext {
+    // Try to extract line number from common error message patterns
+    // serde-xml-rs errors often include line information
+    
+    // Pattern: "line X" or "at line X"
+    if let Some(line_start) = error_str.find("line ") {
+        let after_line = &error_str[line_start + 5..];
+        if let Some(end) = after_line.find(|c: char| !c.is_ascii_digit()) {
+            if let Ok(line) = after_line[..end].parse::<usize>() {
+                return ErrorContext::with_line(line);
+            }
+        }
+    }
+    
+    // Pattern: "at X:" (column information)
+    if let Some(col_start) = error_str.find("at ") {
+        let after_at = &error_str[col_start + 3..];
+        if let Some(end) = after_at.find(':') {
+            if let Ok(column) = after_at[..end].parse::<usize>() {
+                return ErrorContext::new().with_column(column);
+            }
+        }
+    }
+    
+    ErrorContext::new()
 }

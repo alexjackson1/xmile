@@ -29,25 +29,41 @@
 //
 //     Action:  sim_action="…" w/valid XMILE event action name – see Chapter 3 (default: pause)
 
+use serde::{Deserialize, Serialize};
+
 pub trait Poster {
     fn poster(&self) -> Option<&EventPoster>;
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventPoster {
+    #[serde(rename = "@min")]
     pub min: f64,
+    #[serde(rename = "@max")]
     pub max: f64,
+    #[serde(rename = "threshold", default)]
     pub thresholds: Vec<Threshold>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Threshold {
+    #[serde(rename = "@value")]
     pub value: f64,
+    #[serde(rename = "@direction")]
     pub direction: Option<String>,
+    #[serde(rename = "@repeat")]
     pub repeat: Option<String>,
+    #[serde(rename = "@interval")]
     pub interval: Option<f64>,
+    #[serde(rename = "event", default)]
     pub events: Vec<Event>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
+    #[serde(rename = "@sim_action")]
     pub sim_action: Option<String>,
+    // Actions can be text content or child elements - for now, we'll handle as text
+    #[serde(rename = "#text", default)]
     pub actions: Vec<String>, // Actions to be taken when the event is triggered
 }

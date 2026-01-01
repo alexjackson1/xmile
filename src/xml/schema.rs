@@ -1,10 +1,16 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
+fn default_xmlns() -> String {
+    "http://docs.oasis-open.org/xmile/ns/XMILE/v1.0".to_string()
+}
+
 use crate::{
     behavior::Behavior, data::Data, dimensions::Dimensions, header::Header, 
     model::vars::Variable,
     model::vars::flow::Flow,
     specs::SimulationSpecs, units::ModelUnits, view::{Style, View},
+    types::{Validate, ValidationResult},
+    xml::validation::*,
 };
 
 #[cfg(feature = "macros")]
@@ -62,7 +68,7 @@ pub struct XmileFile {
     #[serde(rename = "@version")]
     pub version: String,
     /// The XML namespace for XMILE.
-    #[serde(rename = "@xmlns")]
+    #[serde(rename = "@xmlns", default = "default_xmlns")]
     pub xmlns: String,
     /// The header information for the XMILE file.
     pub header: Header,
@@ -83,7 +89,7 @@ pub struct XmileFile {
     pub models: Vec<Model>,
     /// A list of macros defined in the XMILE file.
     #[cfg(feature = "macros")]
-    #[serde(rename = "macro")]
+    #[serde(rename = "macro", default)]
     pub macros: Vec<Macro>,
 }
 
@@ -121,6 +127,85 @@ pub struct Model {
     pub variables: Variables,
     /// Optional views for this model.
     pub views: Option<Views>,
+}
+
+impl Validate for Model {
+    fn validate(&self) -> ValidationResult {
+        let mut warnings = Vec::new();
+        let mut errors = Vec::new();
+        
+        // Validate variable name uniqueness
+        match validate_variable_name_uniqueness(&self.variables.variables) {
+            ValidationResult::Valid(_) => {}
+            ValidationResult::Warnings(_, warns) => warnings.extend(warns),
+            ValidationResult::Invalid(warns, errs) => {
+                warnings.extend(warns);
+                errors.extend(errs);
+            }
+        }
+        
+        // Validate dimension references
+        // TODO: Get dimensions from file-level or model-level dimensions
+        // For now, we'll skip this validation as we need access to the full file context
+        // This would require passing dimensions from XmileFile to Model validation
+        
+        // Validate view object references
+        if let Some(ref views) = self.views {
+            for view in &views.views {
+                match validate_view_object_references(view, &self.variables.variables) {
+                    ValidationResult::Valid(_) => {}
+                    ValidationResult::Warnings(_, warns) => warnings.extend(warns),
+                    ValidationResult::Invalid(warns, errs) => {
+                        warnings.extend(warns);
+                        errors.extend(errs);
+                    }
+                }
+                
+                // Validate UID uniqueness within each view
+                match validate_view_uids_unique(view) {
+                    ValidationResult::Valid(_) => {}
+                    ValidationResult::Warnings(_, warns) => warnings.extend(warns),
+                    ValidationResult::Invalid(warns, errs) => {
+                        warnings.extend(warns);
+                        errors.extend(errs);
+                    }
+                }
+            }
+        }
+        
+        // Validate group entity references
+        let groups: Vec<_> = self.variables.variables
+            .iter()
+            .filter_map(|v| {
+                if let Variable::Group(g) = v {
+                    Some(g.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        if !groups.is_empty() {
+            match validate_group_entity_references(&groups, &self.variables.variables) {
+                ValidationResult::Valid(_) => {}
+                ValidationResult::Warnings(_, warns) => warnings.extend(warns),
+                ValidationResult::Invalid(warns, errs) => {
+                    warnings.extend(warns);
+                    errors.extend(errs);
+                }
+            }
+        }
+        
+        if errors.is_empty() {
+            if warnings.is_empty() {
+                ValidationResult::Valid(())
+            } else {
+                ValidationResult::Warnings((), warnings)
+            }
+        } else {
+            ValidationResult::Invalid(warnings, errors)
+        }
+    }
 }
 
 /// A wrapper for deserializing variables from XML.
@@ -193,8 +278,12 @@ impl<'de> Deserialize<'de> for Variables {
                             let module: crate::model::vars::Module = map.next_value()?;
                             variables.push(Variable::Module(module));
                         }
+                        "group" => {
+                            let group: crate::model::groups::Group = map.next_value()?;
+                            variables.push(Variable::Group(group));
+                        }
                         _ => {
-                            // Skip unknown tags (like "group" which might appear)
+                            // Skip unknown tags
                             let _: de::IgnoredAny = map.next_value()?;
                         }
                     }
@@ -233,6 +322,9 @@ impl Serialize for Variables {
                 #[cfg(feature = "submodels")]
                 Variable::Module(module) => {
                     map.serialize_entry("module", module)?;
+                }
+                Variable::Group(group) => {
+                    map.serialize_entry("group", group)?;
                 }
             }
         }

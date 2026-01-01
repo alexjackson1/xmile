@@ -42,6 +42,7 @@ pub enum Variable {
     GraphicalFunction(GraphicalFunction),
     #[cfg(feature = "submodels")]
     Module(Module),
+    Group(crate::model::groups::Group),
 }
 
 // Note: Variable enum doesn't implement Serialize/Deserialize directly

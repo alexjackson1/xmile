@@ -12,6 +12,14 @@ pub struct Dimension {
     pub name: String,
 }
 
+/// Dimensions wrapper for variables.
+/// Variables can have a `<dimensions>` tag containing `<dim name="..."/>` tags.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct VariableDimensions {
+    #[serde(rename = "dim", default)]
+    pub dims: Vec<Dimension>,
+}
+
 /// An array element for non-apply-to-all arrays.
 /// According to XMILE spec section 4.5, non-apply-to-all arrayed variables
 /// must have one `<element>` tag for each array entry.

@@ -241,11 +241,15 @@ impl fmt::Display for Expression {
         match self {
             Expression::Constant(value) => write!(f, "{}", value),
             Expression::Subscript(id, params) => {
+                // For serialization, use raw form to preserve quotes if originally quoted
+                // For display, we could use normalized, but for XML serialization we need raw
+                let id_str = id.raw();
+                
                 if params.is_empty() {
-                    return write!(f, "{}", id);
+                    return write!(f, "{}", id_str);
                 }
 
-                write!(f, "{}[", id)?;
+                write!(f, "{}[", id_str)?;
                 for (i, param) in params.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

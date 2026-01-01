@@ -28,24 +28,89 @@ pub mod common {
         delimited(multispace0, inner, multispace0)
     }
 
+    /// Parse a quoted string with escape sequences
+    /// Returns the full quoted string including quotes for Identifier::parse
+    fn quoted_string(input: &str) -> IResult<&str, &str> {
+        if !input.starts_with('"') {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Char,
+            )));
+        }
+        
+        let mut i = 1; // Skip opening quote
+        let mut escaped = false;
+        
+        while i < input.len() {
+            let ch = input.chars().nth(i).unwrap();
+            
+            if escaped {
+                escaped = false;
+                i += ch.len_utf8();
+                continue;
+            }
+            
+            if ch == '\\' {
+                escaped = true;
+                i += 1;
+                continue;
+            }
+            
+            if ch == '"' {
+                // Found closing quote - return the slice from start to here (inclusive)
+                let quoted_str = &input[..i + 1];
+                let remaining = &input[i + 1..];
+                return Ok((remaining, quoted_str));
+            }
+            
+            i += ch.len_utf8();
+        }
+        
+        // No closing quote found
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )))
+    }
+
     /// Parse an identifier (variable name, function name, etc.)
+    /// Supports both quoted and unquoted identifiers
     pub fn identifier(input: &str) -> IResult<&str, Identifier> {
-        map_res(
-            recognize(pair(
-                alt((alpha1, tag("_"))),
-                many0(alt((alphanumeric1, tag("_")))),
-            )),
-            |s: &str| {
-                Identifier::parse(
-                    s,
-                    IdentifierOptions {
-                        allow_dollar: true,
-                        allow_digit: true,
-                        allow_reserved: true,
-                    },
-                )
-            },
-        )
+        // Try quoted identifier first (quoted identifiers can contain spaces and special chars)
+        alt((
+            // Quoted identifier: "identifier with spaces"
+            map_res(
+                quoted_string,
+                |s: &str| {
+                    // Identifier::parse already handles quoted identifiers properly
+                    Identifier::parse(
+                        s,
+                        IdentifierOptions {
+                            allow_dollar: true,
+                            allow_digit: true,
+                            allow_reserved: true,
+                        },
+                    )
+                },
+            ),
+            // Unquoted identifier: identifier_with_underscores
+            map_res(
+                recognize(pair(
+                    alt((alpha1, tag("_"))),
+                    many0(alt((alphanumeric1, tag("_")))),
+                )),
+                |s: &str| {
+                    Identifier::parse(
+                        s,
+                        IdentifierOptions {
+                            allow_dollar: true,
+                            allow_digit: true,
+                            allow_reserved: true,
+                        },
+                    )
+                },
+            ),
+        ))
         .parse(input)
     }
 

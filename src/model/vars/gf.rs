@@ -52,6 +52,9 @@ use crate::{
     validation_utils,
 };
 
+#[cfg(feature = "arrays")]
+use crate::model::vars::array::{ArrayElement, VariableDimensions};
+
 pub use data::GraphicalFunctionData;
 pub use function_type::GraphicalFunctionType;
 pub use points::GraphicalFunctionPoints;
@@ -111,6 +114,14 @@ pub struct GraphicalFunction {
 
     /// Format options for this graphical function
     pub format: Option<FormatOptions>,
+
+    /// The dimensions for this graphical function (if it's an array).
+    #[cfg(feature = "arrays")]
+    pub dimensions: Option<Vec<String>>,
+
+    /// Array elements for non-apply-to-all arrays.
+    #[cfg(feature = "arrays")]
+    pub elements: Vec<ArrayElement>,
 }
 
 impl GraphicalFunction {
@@ -139,6 +150,10 @@ impl GraphicalFunction {
             range: None,
             scale: None,
             format: None,
+            #[cfg(feature = "arrays")]
+            dimensions: None,
+            #[cfg(feature = "arrays")]
+            elements: Vec::new(),
         }
     }
 
@@ -162,6 +177,10 @@ impl GraphicalFunction {
             range: None,
             scale: None,
             format: None,
+            #[cfg(feature = "arrays")]
+            dimensions: None,
+            #[cfg(feature = "arrays")]
+            elements: Vec::new(),
         }
     }
 
@@ -185,6 +204,10 @@ impl GraphicalFunction {
             range: None,
             scale: None,
             format: None,
+            #[cfg(feature = "arrays")]
+            dimensions: None,
+            #[cfg(feature = "arrays")]
+            elements: Vec::new(),
         }
     }
 
@@ -208,6 +231,10 @@ impl GraphicalFunction {
             range: None,
             scale: None,
             format: None,
+            #[cfg(feature = "arrays")]
+            dimensions: None,
+            #[cfg(feature = "arrays")]
+            elements: Vec::new(),
         }
     }
 
@@ -499,6 +526,14 @@ struct RawGraphicalFunction {
     y_pts: Option<GraphicalFunctionPoints>,
     #[serde(rename = "xpts")]
     x_pts: Option<GraphicalFunctionPoints>,
+
+    #[cfg(feature = "arrays")]
+    #[serde(rename = "dimensions")]
+    dimensions: Option<VariableDimensions>,
+    
+    #[cfg(feature = "arrays")]
+    #[serde(rename = "element", default)]
+    elements: Vec<ArrayElement>,
 }
 
 impl From<RawGraphicalFunction> for RawGraphicalFunctionData {
@@ -558,8 +593,8 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
             })
             .transpose()?;
 
-        // Get the equation if present
-        // todo cloning
+        // Extract fields before moving `raw` into data conversion
+        // Note: Cloning is necessary here because `raw` is consumed by the data conversion
         let equation = raw.equation.clone();
         let mathml_equation = raw.mathml_equation.clone();
         let units = raw.units.clone();
@@ -567,8 +602,12 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
         let range = raw.range.clone();
         let scale = raw.scale.clone();
         let format = raw.format.clone();
+        #[cfg(feature = "arrays")]
+        let elements = raw.elements.clone();
+        #[cfg(feature = "arrays")]
+        let dimensions = raw.dimensions.clone();
 
-        // Convert raw data into GraphicalFunctionData
+        // Convert raw data into GraphicalFunctionData (consumes `raw`)
         let data = Into::<RawGraphicalFunctionData>::into(raw).try_into()?;
 
         let mut gf = GraphicalFunction::new(name, r#type, data);
@@ -579,6 +618,11 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
         gf.range = range;
         gf.scale = scale;
         gf.format = format;
+        #[cfg(feature = "arrays")]
+        {
+            gf.dimensions = dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect());
+            gf.elements = elements;
+        }
 
         Ok(gf)
     }
@@ -587,22 +631,19 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
 impl From<GraphicalFunction> for RawGraphicalFunction {
     /// Converts a structured GraphicalFunction into raw XML representation.
     fn from(gf: GraphicalFunction) -> Self {
-        let x_scale = match gf.data {
-            GraphicalFunctionData::UniformScale { x_scale, .. } => Some(x_scale),
-            GraphicalFunctionData::XYPairs { .. } => None,
-        };
-        let y_scale = match gf.data {
-            GraphicalFunctionData::UniformScale { y_scale, .. } => y_scale,
-            GraphicalFunctionData::XYPairs { y_scale, .. } => y_scale,
-        };
-        // TODO: Should be able to eliminate cloning here
-        let y_pts = match gf.data.clone() {
-            GraphicalFunctionData::UniformScale { y_values, .. } => Some(y_values),
-            GraphicalFunctionData::XYPairs { y_values, .. } => Some(y_values),
-        };
-        let x_pts = match gf.data {
-            GraphicalFunctionData::UniformScale { .. } => None,
-            GraphicalFunctionData::XYPairs { x_values, .. } => Some(x_values),
+        // Extract all needed data in a single match to avoid multiple borrows/clones
+        // Note: GraphicalFunctionScale is Copy, so we can copy it directly
+        let (x_scale, y_scale, y_pts, x_pts) = match &gf.data {
+            GraphicalFunctionData::UniformScale {
+                x_scale,
+                y_scale,
+                y_values,
+            } => (Some(*x_scale), *y_scale, Some(y_values.clone()), None),
+            GraphicalFunctionData::XYPairs {
+                y_scale,
+                x_values,
+                y_values,
+            } => (None, *y_scale, Some(y_values.clone()), Some(x_values.clone())),
         };
         RawGraphicalFunction {
             name: gf.name.as_ref().map(|n| n.to_string()),
@@ -614,6 +655,18 @@ impl From<GraphicalFunction> for RawGraphicalFunction {
             range: gf.range,
             scale: gf.scale,
             format: gf.format,
+            #[cfg(feature = "arrays")]
+            dimensions: gf.dimensions.as_ref().map(|dims| {
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                VariableDimensions {
+                    dims: dims
+                        .iter()
+                        .map(|name| Dimension { name: name.clone() })
+                        .collect(),
+                }
+            }),
+            #[cfg(feature = "arrays")]
+            elements: gf.elements,
             x_scale,
             y_scale,
             y_pts,
@@ -654,7 +707,9 @@ impl Serialize for GraphicalFunction {
     where
         S: Serializer,
     {
-        // TODO: Should be able to eliminate cloning here
+        // Note: Clone is necessary here because `From<GraphicalFunction>` takes ownership,
+        // but `serialize` only receives `&self`. This is a limitation of the trait design.
+        // Future optimization: Consider implementing `From<&GraphicalFunction>` for serialization.
         RawGraphicalFunction::from(self.clone()).serialize(serializer)
     }
 }
@@ -2592,13 +2647,12 @@ mod tests {
         }
 
         mod additional_properties {
-            use super::*;
-
             #[cfg(feature = "full")]
             #[test]
             fn all_additional() {
                 use crate::{
-                    Expression, NumericConstant, UnitEquation,
+                    Expression, Identifier, NumericConstant, UnitEquation,
+                    GraphicalFunction, GraphicalFunctionData, GraphicalFunctionType,
                     model::object::{
                         DeviceRange, DeviceScale, DisplayAs, Documentation, FormatOptions,
                     },

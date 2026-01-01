@@ -4,11 +4,15 @@ use thiserror::Error;
 use crate::{
     Expression, Identifier, Measure, UnitEquation,
     model::{
+        events::EventPoster,
         object::{DeviceRange, DeviceScale, Document, Documentation, FormatOptions, Object},
         vars::{AccessType, NonNegativeContent},
     },
     types::{Validate, ValidationResult},
 };
+
+#[cfg(feature = "arrays")]
+use crate::model::vars::array::{ArrayElement, VariableDimensions};
 
 use super::Var;
 
@@ -62,6 +66,10 @@ struct RawStock {
     #[serde(rename = "eqn")]
     initial_equation: Expression,
 
+    #[cfg(feature = "mathml")]
+    #[serde(rename = "mathml")]
+    mathml_equation: Option<String>,
+
     #[serde(rename = "non_negative")]
     non_negative: Option<NonNegativeContent>,
 
@@ -82,6 +90,17 @@ struct RawStock {
     scale: Option<DeviceScale>,
     #[serde(rename = "format")]
     format: Option<FormatOptions>,
+
+    #[cfg(feature = "arrays")]
+    #[serde(rename = "dimensions")]
+    dimensions: Option<VariableDimensions>,
+    
+    #[cfg(feature = "arrays")]
+    #[serde(rename = "element", default)]
+    elements: Vec<ArrayElement>,
+    
+    #[serde(rename = "event_poster")]
+    event_poster: Option<EventPoster>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -186,6 +205,8 @@ impl From<BasicStock> for RawStock {
             inflows: stock.inflows,
             outflows: stock.outflows,
             initial_equation: stock.initial_equation,
+            #[cfg(feature = "mathml")]
+            mathml_equation: stock.mathml_equation,
             non_negative: stock.non_negative.map(Into::into),
             units: stock.units,
             documentation: stock.documentation,
@@ -194,6 +215,16 @@ impl From<BasicStock> for RawStock {
             format: stock.format,
             conveyor: None,
             queue: None,
+            #[cfg(feature = "arrays")]
+            dimensions: stock.dimensions.map(|dims| {
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                VariableDimensions {
+                    dims: dims.into_iter().map(|name| Dimension { name }).collect(),
+                }
+            }),
+            #[cfg(feature = "arrays")]
+            elements: stock.elements,
+            event_poster: stock.event_poster,
         }
     }
 }
@@ -207,6 +238,8 @@ impl From<ConveyorStock> for RawStock {
             inflows: stock.inflows,
             outflows: stock.outflows,
             initial_equation: stock.initial_equation,
+            #[cfg(feature = "mathml")]
+            mathml_equation: stock.mathml_equation,
             non_negative: None, // Conveyors are not marked as non-negative
             units: stock.units,
             documentation: stock.documentation,
@@ -225,6 +258,16 @@ impl From<ConveyorStock> for RawStock {
                 exponential_leakage: stock.exponential_leakage,
             }),
             queue: None, // Conveyors are not queues
+            #[cfg(feature = "arrays")]
+            dimensions: stock.dimensions.map(|dims| {
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                VariableDimensions {
+                    dims: dims.into_iter().map(|name| Dimension { name }).collect(),
+                }
+            }),
+            #[cfg(feature = "arrays")]
+            elements: stock.elements,
+            event_poster: stock.event_poster,
         }
     }
 }
@@ -238,6 +281,8 @@ impl From<QueueStock> for RawStock {
             inflows: stock.inflows,
             outflows: stock.outflows,
             initial_equation: stock.initial_equation,
+            #[cfg(feature = "mathml")]
+            mathml_equation: stock.mathml_equation,
             non_negative: None, // Queues are not marked as non-negative
             units: stock.units,
             documentation: stock.documentation,
@@ -246,6 +291,16 @@ impl From<QueueStock> for RawStock {
             format: stock.format,
             conveyor: None, // Queues are not conveyors
             queue: Some(RawQueue),
+            #[cfg(feature = "arrays")]
+            dimensions: stock.dimensions.map(|dims| {
+                use crate::model::vars::array::{Dimension, VariableDimensions};
+                VariableDimensions {
+                    dims: dims.into_iter().map(|name| Dimension { name }).collect(),
+                }
+            }),
+            #[cfg(feature = "arrays")]
+            elements: stock.elements,
+            event_poster: stock.event_poster,
         }
     }
 }
@@ -341,6 +396,21 @@ pub struct BasicStock {
 
     /// The format options for the stock variable.
     pub format: Option<FormatOptions>,
+
+    /// The dimensions for this stock variable (if it's an array).
+    #[cfg(feature = "arrays")]
+    pub dimensions: Option<Vec<String>>,
+
+    /// Array elements for non-apply-to-all arrays.
+    #[cfg(feature = "arrays")]
+    pub elements: Vec<ArrayElement>,
+
+    /// Optional event poster for triggering events based on stock values.
+    pub event_poster: Option<EventPoster>,
+
+    /// Optional MathML representation of the initial equation.
+    #[cfg(feature = "mathml")]
+    pub mathml_equation: Option<String>,
 }
 
 impl StockVar<'_> for BasicStock {
@@ -363,12 +433,12 @@ impl Var<'_> for BasicStock {
     }
 
     fn equation(&self) -> Option<&Expression> {
-        todo!()
+        Some(&self.initial_equation)
     }
 
     #[cfg(feature = "mathml")]
     fn mathml_equation(&self) -> Option<&String> {
-        todo!()
+        self.mathml_equation.as_ref()
     }
 }
 
@@ -413,6 +483,13 @@ impl From<RawStock> for BasicStock {
             range: raw.range,
             scale: raw.scale,
             format: raw.format,
+            #[cfg(feature = "arrays")]
+            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            #[cfg(feature = "arrays")]
+            elements: raw.elements,
+            event_poster: raw.event_poster,
+            #[cfg(feature = "mathml")]
+            mathml_equation: raw.mathml_equation,
         }
     }
 }
@@ -481,6 +558,21 @@ pub struct ConveyorStock {
 
     /// The format options for the conveyor.
     pub format: Option<FormatOptions>,
+
+    /// The dimensions for this conveyor stock (if it's an array).
+    #[cfg(feature = "arrays")]
+    pub dimensions: Option<Vec<String>>,
+
+    /// Array elements for non-apply-to-all arrays.
+    #[cfg(feature = "arrays")]
+    pub elements: Vec<ArrayElement>,
+
+    /// Optional event poster for triggering events based on stock values.
+    pub event_poster: Option<EventPoster>,
+
+    /// Optional MathML representation of the initial equation.
+    #[cfg(feature = "mathml")]
+    pub mathml_equation: Option<String>,
 }
 
 impl StockVar<'_> for ConveyorStock {
@@ -503,12 +595,12 @@ impl Var<'_> for ConveyorStock {
     }
 
     fn equation(&self) -> Option<&Expression> {
-        todo!()
+        Some(&self.initial_equation)
     }
 
     #[cfg(feature = "mathml")]
     fn mathml_equation(&self) -> Option<&String> {
-        todo!()
+        self.mathml_equation.as_ref()
     }
 }
 
@@ -567,6 +659,13 @@ impl TryFrom<RawStock> for ConveyorStock {
             range: raw.range,
             scale: raw.scale,
             format: raw.format,
+            #[cfg(feature = "arrays")]
+            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            #[cfg(feature = "arrays")]
+            elements: raw.elements,
+            event_poster: raw.event_poster,
+            #[cfg(feature = "mathml")]
+            mathml_equation: raw.mathml_equation,
         })
     }
 }
@@ -608,6 +707,21 @@ pub struct QueueStock {
 
     /// The format options for the queue variable.
     pub format: Option<FormatOptions>,
+
+    /// The dimensions for this queue stock (if it's an array).
+    #[cfg(feature = "arrays")]
+    pub dimensions: Option<Vec<String>>,
+
+    /// Array elements for non-apply-to-all arrays.
+    #[cfg(feature = "arrays")]
+    pub elements: Vec<ArrayElement>,
+
+    /// Optional event poster for triggering events based on stock values.
+    pub event_poster: Option<EventPoster>,
+
+    /// Optional MathML representation of the initial equation.
+    #[cfg(feature = "mathml")]
+    pub mathml_equation: Option<String>,
 }
 
 impl StockVar<'_> for QueueStock {
@@ -630,12 +744,12 @@ impl Var<'_> for QueueStock {
     }
 
     fn equation(&self) -> Option<&Expression> {
-        todo!()
+        Some(&self.initial_equation)
     }
 
     #[cfg(feature = "mathml")]
     fn mathml_equation(&self) -> Option<&String> {
-        todo!()
+        self.mathml_equation.as_ref()
     }
 }
 
@@ -679,6 +793,13 @@ impl From<RawStock> for QueueStock {
             range: raw.range,
             scale: raw.scale,
             format: raw.format,
+            #[cfg(feature = "arrays")]
+            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            #[cfg(feature = "arrays")]
+            elements: raw.elements,
+            event_poster: raw.event_poster,
+            #[cfg(feature = "mathml")]
+            mathml_equation: raw.mathml_equation,
         }
     }
 }
@@ -1100,6 +1221,133 @@ mod tests {
                 assert_eq!(conveyor_stock.exponential_leakage, None);
             }
             _ => panic!("Expected ConveyorStock"),
+        }
+    }
+
+    #[test]
+    fn test_stock_equation_method() {
+        let xml = r#"
+        <stock name="TestStock">
+            <eqn>100 + 50</eqn>
+            <inflow>input</inflow>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                // Verify equation() method returns the initial equation
+                let equation = basic_stock.equation();
+                assert!(equation.is_some(), "equation() should return Some for stocks");
+                // The equation should match the initial_equation
+                assert_eq!(equation.unwrap(), &basic_stock.initial_equation);
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[test]
+    fn test_conveyor_stock_equation_method() {
+        let xml = r#"
+        <stock name="TestConveyor">
+            <eqn>200</eqn>
+            <inflow>input</inflow>
+            <outflow>output</outflow>
+            <conveyor>
+                <len>5</len>
+            </conveyor>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse conveyor stock");
+
+        match stock {
+            Stock::Conveyor(conveyor_stock) => {
+                // Verify equation() method returns the initial equation
+                let equation = conveyor_stock.equation();
+                assert!(equation.is_some(), "equation() should return Some for conveyor stocks");
+                assert_eq!(equation.unwrap(), &conveyor_stock.initial_equation);
+            }
+            _ => panic!("Expected ConveyorStock"),
+        }
+    }
+
+    #[test]
+    fn test_queue_stock_equation_method() {
+        let xml = r#"
+        <stock name="TestQueue">
+            <eqn>0</eqn>
+            <inflow>arrivals</inflow>
+            <outflow>service</outflow>
+            <queue/>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse queue stock");
+
+        match stock {
+            Stock::Queue(queue_stock) => {
+                // Verify equation() method returns the initial equation
+                let equation = queue_stock.equation();
+                assert!(equation.is_some(), "equation() should return Some for queue stocks");
+                assert_eq!(equation.unwrap(), &queue_stock.initial_equation);
+            }
+            _ => panic!("Expected QueueStock"),
+        }
+    }
+
+    #[cfg(feature = "mathml")]
+    #[test]
+    fn test_stock_with_mathml() {
+        let xml = r#"
+        <stock name="MathMLStock">
+            <eqn>100</eqn>
+            <mathml>some_mathml_content</mathml>
+            <inflow>input</inflow>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock with MathML");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                assert_eq!(basic_stock.name, "MathMLStock");
+                // Verify MathML is parsed
+                assert!(basic_stock.mathml_equation.is_some());
+                assert_eq!(
+                    basic_stock.mathml_equation.as_ref().unwrap(),
+                    "some_mathml_content"
+                );
+                // Verify mathml_equation() method works
+                let mathml = basic_stock.mathml_equation();
+                assert!(mathml.is_some());
+                assert_eq!(mathml.unwrap(), basic_stock.mathml_equation.as_ref().unwrap());
+            }
+            _ => panic!("Expected BasicStock"),
+        }
+    }
+
+    #[cfg(feature = "mathml")]
+    #[test]
+    fn test_stock_mathml_optional() {
+        let xml = r#"
+        <stock name="NoMathMLStock">
+            <eqn>100</eqn>
+            <inflow>input</inflow>
+        </stock>
+        "#;
+
+        let stock: Stock = from_str(xml).expect("Failed to parse stock without MathML");
+
+        match stock {
+            Stock::Basic(basic_stock) => {
+                // MathML should be None when not provided
+                assert!(basic_stock.mathml_equation.is_none());
+                let mathml = basic_stock.mathml_equation();
+                assert!(mathml.is_none());
+            }
+            _ => panic!("Expected BasicStock"),
         }
     }
 }

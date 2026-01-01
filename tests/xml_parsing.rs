@@ -64,3 +64,51 @@ fn test_parse_teacup_example() {
     let model = &xmile_file.models[0];
     assert_eq!(model.variables.variables.len(), 4);
 }
+
+#[test]
+fn test_group_parsing() {
+    let xml = r#"
+    <xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+        <header>
+            <vendor>Test</vendor>
+            <product version="1.0">Test Product</product>
+        </header>
+        <model>
+            <variables>
+                <group name="Financial_Sector">
+                    <doc>This is a financial sector group</doc>
+                    <entity name="Revenue"/>
+                    <entity name="Costs" run="true"/>
+                </group>
+            </variables>
+        </model>
+    </xmile>
+    "#;
+
+    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let model = &file.models[0];
+    
+    assert_eq!(model.variables.variables.len(), 1);
+    
+    match &model.variables.variables[0] {
+        xmile::model::vars::Variable::Group(group) => {
+            // Identifier normalizes underscores to spaces
+            assert_eq!(&group.name.to_string(), "Financial Sector");
+            assert_eq!(group.entities.len(), 2);
+            assert_eq!(&group.entities[0].name.to_string(), "Revenue");
+            assert_eq!(group.entities[0].run, false);
+            assert_eq!(&group.entities[1].name.to_string(), "Costs");
+            assert_eq!(group.entities[1].run, true);
+            assert!(group.doc.is_some());
+            if let Some(doc) = &group.doc {
+                match doc {
+                    xmile::model::object::Documentation::PlainText(text) => {
+                        assert!(text.contains("financial sector"));
+                    }
+                    _ => panic!("Expected plain text documentation"),
+                }
+            }
+        }
+        _ => panic!("Expected Group variant"),
+    }
+}

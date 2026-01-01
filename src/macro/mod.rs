@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     equation::{Expression, Identifier},
@@ -67,10 +67,7 @@ use crate::{
 /// they can refer to themselves in their equations. In this case, the
 /// recursive_macros option must be set to true in the <uses_macros> tag of the
 /// XMILE options (see Section 2.2.1).
-///
-/// Note: This struct does not implement Serialize/Deserialize because some
-/// contained types (SimulationSpecs, Variable, View) do not implement these traits.
-/// Debug, Clone, and PartialEq are manually implemented because View doesn't implement them.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
     /// The name of the macro (a valid XMILE identifier).
     /// This is a REQUIRED attribute: name="…"
@@ -121,49 +118,122 @@ pub struct Macro {
     pub namespace: Option<Vec<Namespace>>,
 }
 
-impl std::fmt::Debug for Macro {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Macro")
-            .field("name", &self.name)
-            .field("eqn", &self.eqn)
-            .field("parameters", &self.parameters)
-            .field("format", &self.format)
-            .field("doc", &self.doc)
-            .field("sim_specs", &self.sim_specs)
-            .field("variables", &self.variables)
-            .field("views", &self.views.as_ref().map(|_| "View(...)"))
-            .field("namespace", &self.namespace)
-            .finish()
+/// Raw macro structure for deserialization from XML.
+/// Handles the mixed content within a <macro> tag.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+struct RawMacro {
+    #[serde(rename = "@name")]
+    name: Identifier,
+    #[serde(rename = "@namespace")]
+    namespace: Option<String>,
+    #[serde(rename = "parm", default)]
+    parameters: Vec<MacroParameter>,
+    #[serde(rename = "eqn")]
+    eqn: Expression,
+    #[serde(rename = "format")]
+    format: Option<String>,
+    #[serde(rename = "doc")]
+    doc: Option<Documentation>,
+    #[serde(rename = "sim_specs")]
+    sim_specs: Option<SimulationSpecs>,
+    #[serde(rename = "variables")]
+    variables: Option<crate::xml::schema::Variables>,
+    #[serde(rename = "views")]
+    views: Option<RawMacroViews>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct RawMacroViews {
+    #[serde(rename = "view")]
+    view: View,
+}
+
+impl<'de> Deserialize<'de> for Macro {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw: RawMacro = Deserialize::deserialize(deserializer)?;
+        
+        let namespace = raw.namespace.map(|ns| {
+            // Parse namespace string into Vec<Namespace>
+            Namespace::from_str(&ns)
+        });
+        
+        let variables = raw.variables.map(|vars| vars.variables);
+        
+        let views = raw.views.map(|v| v.view);
+        
+        Ok(Macro {
+            name: raw.name,
+            eqn: raw.eqn,
+            parameters: raw.parameters,
+            format: raw.format,
+            doc: raw.doc,
+            sim_specs: raw.sim_specs,
+            variables,
+            views,
+            namespace,
+        })
     }
 }
 
-impl Clone for Macro {
-    fn clone(&self) -> Self {
-        Macro {
-            name: self.name.clone(),
-            eqn: self.eqn.clone(),
-            parameters: self.parameters.clone(),
-            format: self.format.clone(),
-            doc: self.doc.clone(),
-            sim_specs: self.sim_specs.clone(),
-            variables: self.variables.clone(),
-            views: None, // View doesn't implement Clone, so we set to None
-            namespace: self.namespace.clone(),
+impl Serialize for Macro {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let field_count = 1 // name
+            + if self.namespace.is_some() { 1 } else { 0 }
+            + if !self.parameters.is_empty() { 1 } else { 0 }
+            + 1 // eqn
+            + if self.format.is_some() { 1 } else { 0 }
+            + if self.doc.is_some() { 1 } else { 0 }
+            + if self.sim_specs.is_some() { 1 } else { 0 }
+            + if self.variables.is_some() { 1 } else { 0 }
+            + if self.views.is_some() { 1 } else { 0 };
+        
+        let mut state = serializer.serialize_struct("macro", field_count)?;
+        
+        // Serialize name as attribute
+        state.serialize_field("@name", &self.name.to_string())?;
+        
+        if let Some(ref ns_vec) = self.namespace {
+            if !ns_vec.is_empty() {
+                let ns_str = Namespace::as_prefix(ns_vec);
+                state.serialize_field("@namespace", &ns_str)?;
+            }
         }
-    }
-}
-
-impl PartialEq for Macro {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-            && self.eqn == other.eqn
-            && self.parameters == other.parameters
-            && self.format == other.format
-            && self.doc == other.doc
-            && self.sim_specs == other.sim_specs
-            && self.variables == other.variables
-            // View doesn't implement PartialEq, so we skip it in comparison
-            && self.namespace == other.namespace
+        
+        if !self.parameters.is_empty() {
+            state.serialize_field("parm", &self.parameters)?;
+        }
+        
+        state.serialize_field("eqn", &self.eqn)?;
+        
+        if let Some(ref format) = self.format {
+            state.serialize_field("format", format)?;
+        }
+        
+        if let Some(ref doc) = self.doc {
+            state.serialize_field("doc", doc)?;
+        }
+        
+        if let Some(ref sim_specs) = self.sim_specs {
+            state.serialize_field("sim_specs", sim_specs)?;
+        }
+        
+        if let Some(ref vars) = self.variables {
+            use crate::xml::schema::Variables;
+            state.serialize_field("variables", &Variables { variables: vars.clone() })?;
+        }
+        
+        if let Some(ref view) = self.views {
+            state.serialize_field("views", &RawMacroViews { view: view.clone() })?;
+        }
+        
+        state.end()
     }
 }
 
