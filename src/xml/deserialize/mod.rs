@@ -32,15 +32,19 @@ pub use variables::deserialize_variables;
 pub use views::{deserialize_view, deserialize_views};
 
 // Main deserialization types and functions
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
+
 use thiserror::Error;
 
-use crate::behavior::Behavior;
-use crate::specs::SimulationSpecs;
-use crate::xml::quick::de::{Attrs, skip_element};
-use crate::xml::schema::{Model, Variables};
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    behavior::Behavior,
+    specs::SimulationSpecs,
+    xml::quick::de::{Attrs, skip_element},
+    xml::schema::{Model, Variables},
+};
 
 // Import internal implementations for use within this module
 use specs::deserialize_sim_specs_impl;
@@ -127,23 +131,9 @@ pub(crate) fn deserialize_model_impl<R: BufRead>(
             Event::Start(e) => {
                 match e.name().as_ref() {
                     b"sim_specs" => {
-                        // Extract attributes from the already-read start event
-                        let mut method: Option<String> = None;
-                        let mut time_units: Option<String> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"method" => {
-                                    method =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                                b"time_units" => {
-                                    time_units =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let method = attrs.get_opt_string("method");
+                        let time_units = attrs.get_opt_string("time_units");
                         buf.clear();
                         sim_specs =
                             Some(deserialize_sim_specs_impl(reader, buf, method, time_units)?);
@@ -159,21 +149,8 @@ pub(crate) fn deserialize_model_impl<R: BufRead>(
                         behavior = Some(deserialize_behavior(reader, buf)?);
                     }
                     b"views" => {
-                        // Extract attributes from the already-read start event
-                        let mut visible_view: Option<u32> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            if attr.key.as_ref() == b"visible_view" {
-                                let visible_str =
-                                    attr.decode_and_unescape_value(reader)?.to_string();
-                                visible_view = Some(visible_str.parse().map_err(|e| {
-                                    DeserializeError::Custom(format!(
-                                        "Invalid visible_view value: {}",
-                                        e
-                                    ))
-                                })?);
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let visible_view = attrs.get_opt_u32("visible_view")?;
                         buf.clear();
                         views = Some(deserialize_views_impl(reader, buf, visible_view)?);
                     }

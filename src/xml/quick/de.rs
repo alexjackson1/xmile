@@ -34,6 +34,12 @@ impl Attrs {
         }
     }
 
+    /// Create Attrs from a HashMap and element name.
+    /// Useful when converting from pre-extracted attribute vectors.
+    pub fn from_map(map: HashMap<String, String>, element_name: String) -> Self {
+        Self { map, element_name }
+    }
+
     /// Parse attributes from a `BytesStart` event.
     ///
     /// This decodes and unescapes all attribute values once, storing them in a HashMap.
@@ -139,6 +145,16 @@ impl Attrs {
 
     /// Get a required u32 attribute.
     pub fn get_req_u32(&self, key: &str) -> Result<u32, DeserializeError> {
+        self.get_req_parsed(key)
+    }
+
+    /// Get an optional usize attribute.
+    pub fn get_opt_usize(&self, key: &str) -> Result<Option<usize>, DeserializeError> {
+        self.get_opt_parsed(key)
+    }
+
+    /// Get a required usize attribute.
+    pub fn get_req_usize(&self, key: &str) -> Result<usize, DeserializeError> {
         self.get_req_parsed(key)
     }
 
@@ -340,6 +356,15 @@ impl<'a, R: BufRead> XmlCursor<'a, R> {
     /// Get the buffer (for when you need direct access).
     pub fn buf(&mut self) -> &mut Vec<u8> {
         self.buf
+    }
+}
+
+impl Attrs {
+    /// Convert Attrs to Vec<(Vec<u8>, String)> format (for legacy APIs that expect this format).
+    pub fn to_vec(&self) -> Vec<(Vec<u8>, String)> {
+        self.map.iter()
+            .map(|(k, v)| (k.as_bytes().to_vec(), v.clone()))
+            .collect()
     }
 }
 

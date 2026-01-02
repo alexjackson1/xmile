@@ -3,24 +3,28 @@
 //! This module handles deserialization of macro definitions (feature-gated).
 
 #[cfg(feature = "macros")]
-use quick_xml::Reader;
-#[cfg(feature = "macros")]
-use quick_xml::events::Event;
-#[cfg(feature = "macros")]
 use std::io::BufRead;
 
 #[cfg(feature = "macros")]
-use crate::Expression;
+use quick_xml::Reader;
 #[cfg(feature = "macros")]
-use crate::equation::Identifier;
+use quick_xml::events::Event;
+
 #[cfg(feature = "macros")]
-use crate::r#macro::{Macro, MacroParameter};
-#[cfg(feature = "macros")]
-use crate::model::object::Documentation;
-#[cfg(feature = "macros")]
-use crate::xml::deserialize::DeserializeError;
-#[cfg(feature = "macros")]
-use crate::xml::deserialize::helpers::read_text_content;
+use crate::{
+    Expression,
+    equation::{Identifier, parse::expression},
+    r#macro::{Macro, MacroParameter},
+    model::object::Documentation,
+    xml::{
+        deserialize::{
+            DeserializeError, helpers::read_text_content, read_expression,
+            specs::deserialize_sim_specs_impl, variables::deserialize_variables_impl,
+            views::deserialize_view_impl,
+        },
+        quick::de::{Attrs, skip_element},
+    },
+};
 
 /// Deserialize a Macro from XML.
 #[cfg(feature = "macros")]
@@ -33,25 +37,15 @@ pub fn deserialize_macro<R: BufRead>(
 
     match event {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"macro" => {
-            let mut name: Option<Identifier> = None;
-            let mut namespace: Option<String> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        name = Some(Identifier::parse_from_attribute(&name_str).map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid macro name: {}", e))
-                        })?);
-                    }
-                    b"namespace" => {
-                        namespace = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s)
+                        .map_err(|e| DeserializeError::Custom(format!("Invalid macro name: {}", e)))
+                })
+                .transpose()?;
+            let namespace = attrs.get_opt_string("namespace");
 
             let mut parameters: Vec<MacroParameter> = Vec::new();
             let mut eqn: Option<Expression> = None;
@@ -66,31 +60,25 @@ pub fn deserialize_macro<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) if e.name().as_ref() == b"parm" => {
-                            let mut param_default: Option<Expression> = None;
-
-                            // Read attributes
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                if attr.key.as_ref() == b"default" {
-                                    let default_str =
-                                        attr.decode_and_unescape_value(reader)?.to_string();
-                                    use crate::equation::parse::expression;
-                                    let (remaining, expr) =
-                                        expression(&default_str).map_err(|err| {
-                                            DeserializeError::Custom(format!(
-                                                "Invalid default expression: {}",
-                                                err
-                                            ))
-                                        })?;
-                                    if !remaining.is_empty() {
-                                        return Err(DeserializeError::Custom(format!(
-                                            "Unexpected trailing characters after default expression: '{}'",
-                                            remaining
-                                        )));
-                                    }
-                                    param_default = Some(expr);
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let param_default = if let Some(default_str) = attrs.get_opt("default")
+                            {
+                                let (remaining, expr) = expression(default_str).map_err(|err| {
+                                    DeserializeError::Custom(format!(
+                                        "Invalid default expression: {}",
+                                        err
+                                    ))
+                                })?;
+                                if !remaining.is_empty() {
+                                    return Err(DeserializeError::Custom(format!(
+                                        "Unexpected trailing characters after default expression: '{}'",
+                                        remaining
+                                    )));
                                 }
-                            }
+                                Some(expr)
+                            } else {
+                                None
+                            };
 
                             // Read parameter name from text content
                             let parm_name_str = read_text_content(reader, buf)?;
@@ -107,7 +95,6 @@ pub fn deserialize_macro<R: BufRead>(
                             });
                         }
                         Event::Start(e) if e.name().as_ref() == b"eqn" => {
-                            use crate::xml::deserialize::read_expression;
                             eqn = Some(read_expression(reader, buf)?);
                         }
                         Event::Start(e) if e.name().as_ref() == b"format" => {
@@ -124,47 +111,21 @@ pub fn deserialize_macro<R: BufRead>(
                             );
                         }
                         Event::Start(e) if e.name().as_ref() == b"sim_specs" => {
-                            use crate::xml::deserialize::specs::deserialize_sim_specs_impl;
-                            let mut method: Option<String> = None;
-                            let mut time_units: Option<String> = None;
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                match attr.key.as_ref() {
-                                    b"method" => {
-                                        method = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    b"time_units" => {
-                                        time_units = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let method = attrs.get_opt_string("method");
+                            let time_units = attrs.get_opt_string("time_units");
                             buf.clear();
                             sim_specs =
                                 Some(deserialize_sim_specs_impl(reader, buf, method, time_units)?);
                         }
                         Event::Start(e) if e.name().as_ref() == b"variables" => {
-                            use crate::xml::deserialize::variables::deserialize_variables_impl;
                             buf.clear();
                             let vars = deserialize_variables_impl(reader, buf)?;
                             variables = Some(vars.variables);
                         }
                         Event::Start(e) if e.name().as_ref() == b"view" => {
-                            use crate::xml::deserialize::views::deserialize_view_impl;
-                            let attrs: Vec<_> = e
-                                .attributes()
-                                .filter_map(|a| a.ok())
-                                .map(|a| {
-                                    (
-                                        a.key.as_ref().to_vec(),
-                                        String::from_utf8_lossy(&a.value).to_string(),
-                                    )
-                                })
-                                .collect();
+                            let attrs_obj = Attrs::from_start(&e, reader)?;
+                            let attrs = attrs_obj.to_vec();
                             buf.clear();
                             views = Some(deserialize_view_impl(reader, buf, attrs)?);
                         }
@@ -223,34 +184,27 @@ pub(crate) fn deserialize_macro_impl<R: BufRead>(
             Event::Start(e) => {
                 match e.name().as_ref() {
                     b"eqn" => {
-                        use crate::xml::deserialize::read_expression;
                         eqn = Some(read_expression(reader, buf)?);
                     }
                     b"parm" => {
-                        // Extract default attribute
-                        let mut default: Option<Expression> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            if attr.key.as_ref() == b"default" {
-                                let default_str =
-                                    attr.decode_and_unescape_value(reader)?.to_string();
-                                use crate::equation::parse::expression;
-                                let (remaining, expr) =
-                                    expression(&default_str).map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid default expression: {}",
-                                            err
-                                        ))
-                                    })?;
-                                if !remaining.is_empty() {
-                                    return Err(DeserializeError::Custom(format!(
-                                        "Unexpected trailing characters after default expression: '{}'",
-                                        remaining
-                                    )));
-                                }
-                                default = Some(expr);
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let default = if let Some(default_str) = attrs.get_opt("default") {
+                            let (remaining, expr) = expression(default_str).map_err(|err| {
+                                DeserializeError::Custom(format!(
+                                    "Invalid default expression: {}",
+                                    err
+                                ))
+                            })?;
+                            if !remaining.is_empty() {
+                                return Err(DeserializeError::Custom(format!(
+                                    "Unexpected trailing characters after default expression: '{}'",
+                                    remaining
+                                )));
                             }
-                        }
+                            Some(expr)
+                        } else {
+                            None
+                        };
                         // Read parameter name from text content
                         let parm_name_str = read_text_content(reader, buf)?;
                         let parm_name =
@@ -275,7 +229,6 @@ pub(crate) fn deserialize_macro_impl<R: BufRead>(
                     _ => {
                         // Skip unknown elements
                         let element_name = e.name().as_ref().to_vec();
-                        use crate::xml::quick::de::skip_element;
                         skip_element(reader, buf, &element_name)?;
                     }
                 }

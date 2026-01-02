@@ -3,14 +3,21 @@
 //! This module handles deserialization of XMILE file headers, including
 //! vendor information, product details, contact information, and includes.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 
-use crate::header::{Contact, Header, Include, Includes, Product};
-use crate::xml::deserialize::DeserializeError;
-use crate::xml::deserialize::helpers::read_text_content;
-use crate::xml::quick::de::skip_element;
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    header::{
+        Contact, Header, Include, Includes, Options, Product, UsesArrays, UsesConveyor,
+        UsesEventPosters, UsesInputs, UsesMacros, UsesOutputs, UsesQueue,
+    },
+    xml::{
+        deserialize::{DeserializeError, helpers::read_text_content},
+        quick::de::{Attrs, skip_element},
+    },
+};
 
 /// Deserialize header from an already-read start tag.
 /// This function is called when the start tag has already been consumed by the caller.
@@ -43,7 +50,7 @@ pub(crate) fn deserialize_header_impl<R: BufRead>(
     let mut modified: Option<String> = None;
     let mut uuid: Option<String> = None;
     let mut includes: Option<Includes> = None;
-    // TODO: options in Phase 2
+    let mut options: Option<Options> = None;
 
     loop {
         match reader.read_event_into(buf)? {
@@ -54,8 +61,6 @@ pub(crate) fn deserialize_header_impl<R: BufRead>(
                         vendor = Some(read_text_content(reader, buf)?);
                     }
                     b"product" => {
-                        // Use Attrs helper for cleaner attribute parsing
-                        use crate::xml::quick::de::Attrs;
                         let attrs = Attrs::from_start(&e, reader)?;
                         let version = attrs.get_req_string("version")?;
                         let lang = attrs.get_opt_string("lang");
@@ -105,12 +110,27 @@ pub(crate) fn deserialize_header_impl<R: BufRead>(
                     b"includes" => {
                         includes = Some(deserialize_includes(reader, buf)?);
                     }
+                    b"options" => {
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let namespace = attrs.get_opt_string("namespace");
+                        buf.clear();
+                        options = Some(deserialize_options(reader, buf, namespace)?);
+                    }
                     _ => {
                         // Skip unknown elements properly using the helper
                         skip_element(reader, buf, &tag_name)?;
                     }
                 }
             }
+            Event::Empty(e) => match e.name().as_ref() {
+                b"options" => {
+                    let attrs = Attrs::from_start(&e, reader)?;
+                    let namespace = attrs.get_opt_string("namespace");
+                    buf.clear();
+                    options = Some(deserialize_options(reader, buf, namespace)?);
+                }
+                _ => {}
+            },
             Event::End(e) if e.name().as_ref() == b"header" => {
                 break;
             }
@@ -127,7 +147,7 @@ pub(crate) fn deserialize_header_impl<R: BufRead>(
             .ok_or_else(|| DeserializeError::MissingField("header/vendor".to_string()))?,
         product: product
             .ok_or_else(|| DeserializeError::MissingField("header/product".to_string()))?,
-        options: None, // TODO: implement options deserialization
+        options,
         name,
         version_info,
         caption,
@@ -223,17 +243,8 @@ fn deserialize_includes<R: BufRead>(
         match reader.read_event_into(buf)? {
             Event::Start(e) => {
                 if e.name().as_ref() == b"include" {
-                    let mut resource: Option<String> = None;
-
-                    // Read attributes
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        if attr.key.as_ref() == b"resource" {
-                            resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                        }
-                    }
-
-                    if let Some(resource) = resource {
+                    let attrs = Attrs::from_start(&e, reader)?;
+                    if let Some(resource) = attrs.get_opt_string("resource") {
                         includes.push(Include { resource });
                     }
 
@@ -250,17 +261,8 @@ fn deserialize_includes<R: BufRead>(
             }
             Event::Empty(e) => {
                 if e.name().as_ref() == b"include" {
-                    let mut resource: Option<String> = None;
-
-                    // Read attributes
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        if attr.key.as_ref() == b"resource" {
-                            resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                        }
-                    }
-
-                    if let Some(resource) = resource {
+                    let attrs = Attrs::from_start(&e, reader)?;
+                    if let Some(resource) = attrs.get_opt_string("resource") {
                         includes.push(Include { resource });
                     }
                 }
@@ -273,4 +275,140 @@ fn deserialize_includes<R: BufRead>(
     }
 
     Ok(Includes { includes })
+}
+
+/// Deserialize Options from XML.
+/// The start tag has already been read and attributes extracted.
+fn deserialize_options<R: BufRead>(
+    reader: &mut Reader<R>,
+    buf: &mut Vec<u8>,
+    namespace: Option<String>,
+) -> Result<Options, DeserializeError> {
+    let mut uses_conveyor: Option<UsesConveyor> = None;
+    let mut uses_queue: Option<UsesQueue> = None;
+    let mut uses_arrays: Option<UsesArrays> = None;
+    let mut uses_submodels: Option<bool> = None;
+    let mut uses_macros: Option<UsesMacros> = None;
+    let mut uses_event_posters: Option<UsesEventPosters> = None;
+    let mut has_model_view: Option<bool> = None;
+    let mut uses_outputs: Option<UsesOutputs> = None;
+    let mut uses_inputs: Option<UsesInputs> = None;
+    let mut uses_annotation: Option<bool> = None;
+
+    // Process child elements
+    loop {
+        buf.clear();
+        match reader.read_event_into(buf)? {
+            Event::Start(e) => {
+                let element_name = e.name().as_ref().to_vec();
+                let element_attrs = Attrs::from_start(&e, reader)?;
+
+                match element_name.as_slice() {
+                    b"uses_conveyor" => {
+                        let arrest = element_attrs.get_opt_bool("arrest")?;
+                        let leak = element_attrs.get_opt_bool("leak")?;
+                        uses_conveyor = Some(UsesConveyor { arrest, leak });
+                        skip_element(reader, buf, b"uses_conveyor")?;
+                    }
+                    b"uses_queue" => {
+                        let overflow = element_attrs.get_opt_bool("overflow")?;
+                        uses_queue = Some(UsesQueue { overflow });
+                        skip_element(reader, buf, b"uses_queue")?;
+                    }
+                    b"uses_arrays" => {
+                        let maximum_dimensions =
+                            element_attrs.get_req_u32("maximum_dimensions")? as usize;
+                        let invalid_index_value =
+                            element_attrs.get_opt_string("invalid_index_value");
+                        uses_arrays = Some(UsesArrays {
+                            maximum_dimensions,
+                            invalid_index_value,
+                        });
+                        skip_element(reader, buf, b"uses_arrays")?;
+                    }
+                    b"uses_submodels" => {
+                        uses_submodels = Some(true);
+                        skip_element(reader, buf, b"uses_submodels")?;
+                    }
+                    b"uses_macros" => {
+                        let recursive_macros = element_attrs
+                            .get_opt_bool("recursive_macros")?
+                            .ok_or_else(|| {
+                                DeserializeError::MissingField(
+                                    "uses_macros@recursive_macros".to_string(),
+                                )
+                            })?;
+                        let option_filters = element_attrs
+                            .get_opt_bool("option_filters")?
+                            .ok_or_else(|| {
+                                DeserializeError::MissingField(
+                                    "uses_macros@option_filters".to_string(),
+                                )
+                            })?;
+                        uses_macros = Some(UsesMacros {
+                            recursive_macros,
+                            option_filters,
+                        });
+                        skip_element(reader, buf, b"uses_macros")?;
+                    }
+                    b"uses_event_posters" => {
+                        let messages = element_attrs.get_opt_bool("messages")?;
+                        uses_event_posters = Some(UsesEventPosters { messages });
+                        skip_element(reader, buf, b"uses_event_posters")?;
+                    }
+                    b"has_model_view" => {
+                        has_model_view = Some(true);
+                        skip_element(reader, buf, b"has_model_view")?;
+                    }
+                    b"uses_outputs" => {
+                        let numeric_display = element_attrs.get_opt_bool("numeric_display")?;
+                        let lamp = element_attrs.get_opt_bool("lamp")?;
+                        let gauge = element_attrs.get_opt_bool("gauge")?;
+                        uses_outputs = Some(UsesOutputs {
+                            numeric_display,
+                            lamp,
+                            gauge,
+                        });
+                        skip_element(reader, buf, b"uses_outputs")?;
+                    }
+                    b"uses_inputs" => {
+                        let numeric_input = element_attrs.get_opt_bool("numeric_input")?;
+                        let list = element_attrs.get_opt_bool("list")?;
+                        let graphical_input = element_attrs.get_opt_bool("graphical_input")?;
+                        uses_inputs = Some(UsesInputs {
+                            numeric_input,
+                            list,
+                            graphical_input,
+                        });
+                        skip_element(reader, buf, b"uses_inputs")?;
+                    }
+                    b"uses_annotation" => {
+                        uses_annotation = Some(true);
+                        skip_element(reader, buf, b"uses_annotation")?;
+                    }
+                    _ => {
+                        // Unknown option element, skip it
+                        skip_element(reader, buf, &element_name)?;
+                    }
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"options" => break,
+            Event::Eof => return Err(DeserializeError::UnexpectedEof),
+            _ => {}
+        }
+    }
+
+    Ok(Options {
+        namespace,
+        uses_conveyor,
+        uses_queue,
+        uses_arrays,
+        uses_submodels,
+        uses_macros,
+        uses_event_posters,
+        has_model_view,
+        uses_outputs,
+        uses_inputs,
+        uses_annotation,
+    })
 }

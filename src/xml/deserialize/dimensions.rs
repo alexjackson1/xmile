@@ -3,12 +3,15 @@
 //! This module handles deserialization of file-level dimension definitions,
 //! which are used for array variables.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 
-use crate::dimensions::{Dimension as FileDimension, DimensionElement, Dimensions};
-use crate::xml::deserialize::DeserializeError;
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    dimensions::{Dimension as FileDimension, DimensionElement, Dimensions},
+    xml::{deserialize::DeserializeError, quick::de::Attrs},
+};
 
 /// Deserialize file-level Dimensions from XML.
 pub fn deserialize_file_dimensions<R: BufRead>(
@@ -56,25 +59,9 @@ fn deserialize_dimension<R: BufRead>(
 ) -> Result<FileDimension, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"dim" => {
-            let mut name: Option<String> = None;
-            let mut size: Option<usize> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"size" => {
-                        let size_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        size = Some(size_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid size value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs.get_opt_string("name");
+            let size = attrs.get_opt_parsed::<usize>("size")?;
 
             let mut elements = Vec::new();
 
@@ -83,15 +70,8 @@ fn deserialize_dimension<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"elem" => {
-                            let mut elem_name: Option<String> = None;
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                if attr.key.as_ref() == b"name" {
-                                    elem_name =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                            }
-                            if let Some(name) = elem_name {
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            if let Some(name) = attrs.get_opt_string("name") {
                                 elements.push(DimensionElement { name });
                             }
 

@@ -32,6 +32,7 @@ use crate::model::vars::module::Module;
 use crate::model::vars::{
     aux::Auxiliary, flow::BasicFlow, gf::GraphicalFunction, stock::BasicStock,
 };
+#[allow(unused_imports)]
 use crate::namespace::Namespace;
 use crate::specs::SimulationSpecs;
 use crate::units::{ModelUnits, UnitDefinition};

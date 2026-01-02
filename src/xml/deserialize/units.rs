@@ -3,14 +3,16 @@
 //! This module handles deserialization of model unit definitions,
 //! including unit names, equations, and aliases.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 
-use crate::units::{ModelUnits, UnitDefinition};
-use crate::xml::deserialize::DeserializeError;
-use crate::xml::deserialize::helpers::read_text_content;
-use crate::xml::quick::de::skip_element;
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    units::{ModelUnits, UnitDefinition},
+    xml::deserialize::{DeserializeError, helpers::read_text_content},
+    xml::quick::de::{Attrs, skip_element},
+};
 
 /// Deserialize ModelUnits from XML.
 pub fn deserialize_model_units<R: BufRead>(
@@ -58,32 +60,9 @@ fn deserialize_unit_definition<R: BufRead>(
 ) -> Result<UnitDefinition, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"unit" => {
-            let mut name: Option<String> = None;
-            let mut disabled: Option<bool> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"disabled" => {
-                        let disabled_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        disabled = Some(match disabled_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid disabled value: {}",
-                                    disabled_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs.get_opt_string("name");
+            let disabled = attrs.get_opt_bool("disabled")?;
 
             let mut eqn: Option<String> = None;
             let mut aliases = Vec::new();

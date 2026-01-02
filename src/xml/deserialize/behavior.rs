@@ -3,12 +3,15 @@
 //! This module handles deserialization of behavior definitions,
 //! including global and entity-specific behavior settings.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 
-use crate::behavior::{Behavior, EntityBehavior, EntityBehaviorEntry};
-use crate::xml::deserialize::DeserializeError;
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    behavior::{Behavior, EntityBehavior, EntityBehaviorEntry},
+    xml::deserialize::DeserializeError,
+};
 
 /// Deserialize Behavior from XML.
 pub fn deserialize_behavior<R: BufRead>(

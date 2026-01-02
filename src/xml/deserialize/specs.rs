@@ -3,13 +3,16 @@
 //! This module handles deserialization of simulation specifications,
 //! including start/stop times, time step, method, and other simulation parameters.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 
-use crate::specs::SimulationSpecs;
-use crate::xml::deserialize::DeserializeError;
-use crate::xml::deserialize::helpers::read_number_content;
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    specs::SimulationSpecs,
+    xml::deserialize::{DeserializeError, helpers::read_number_content},
+    xml::quick::de::Attrs,
+};
 
 /// Deserialize a SimulationSpecs structure from XML.
 ///
@@ -20,24 +23,12 @@ pub fn deserialize_sim_specs<R: BufRead>(
 ) -> Result<SimulationSpecs, DeserializeError> {
     // Expect <sim_specs> start tag
     let event = reader.read_event_into(buf)?;
-    let mut method: Option<String> = None;
-    let mut time_units: Option<String> = None;
-
-    match event {
+    let (method, time_units) = match event {
         Event::Start(e) if e.name().as_ref() == b"sim_specs" => {
-            // Read attributes from sim_specs element
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"method" => {
-                        method = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"time_units" => {
-                        time_units = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let method = attrs.get_opt_string("method");
+            let time_units = attrs.get_opt_string("time_units");
+            (method, time_units)
         }
         Event::Start(e) => {
             return Err(DeserializeError::UnexpectedElement {
@@ -50,7 +41,7 @@ pub fn deserialize_sim_specs<R: BufRead>(
                 "Expected sim_specs start tag".to_string(),
             ));
         }
-    }
+    };
     buf.clear();
     deserialize_sim_specs_impl(reader, buf, method, time_units)
 }
@@ -85,13 +76,8 @@ pub(crate) fn deserialize_sim_specs_impl<R: BufRead>(
                         pause = Some(read_number_content(reader, buf)?);
                     }
                     b"run" => {
-                        // Check for "by" attribute
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            if attr.key.as_ref() == b"by" {
-                                run_by = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        run_by = attrs.get_opt_string("by");
                         // May also have text content, but typically it's just the attribute
                         // Read until end tag
                         loop {

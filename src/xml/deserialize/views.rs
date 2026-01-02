@@ -3,75 +3,102 @@
 //! This module handles deserialization of views and all view objects:
 //! stocks, flows, auxes, modules, groups, connectors, aliases, and UI elements.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 
-// Re-export behavior deserialization functions
-pub use crate::xml::deserialize::behavior::deserialize_behavior;
+use quick_xml::Reader;
+use quick_xml::events::Event;
 
-// Re-export data deserialization functions
-pub use crate::xml::deserialize::data::deserialize_data;
+use crate::{
+    Expression,
+    equation::{Identifier, parse::unit_equation, units::UnitEquation},
+    model::{
+        events::EventPoster,
+        groups::{Group, GroupEntity},
+        object::{DeviceRange, DeviceScale, DisplayAs, Documentation, FormatOptions},
+        vars::{
+            aux::Auxiliary,
+            flow::BasicFlow,
+            stock::{BasicStock, ConveyorStock, QueueStock, Stock},
+        },
+    },
+    view::{
+        PageOrientation, PageSequence, View, ViewType,
+        objects::{
+            AliasObject, AuxObject, ButtonAppearance, ButtonObject, ButtonStyle, ConnectorObject,
+            DataAction, FileAction, FlowObject, GaugeObject, GraphObject, GraphType,
+            GraphicalInputObject, GraphicsFrameContent, GraphicsFrameObject, GroupObject,
+            ImageContent, KnobObject, LampObject, LineStyle, Link, LinkEffect, LinkTarget,
+            ListInputObject, MenuAction, MiscellaneousAction, ModuleObject, NumericDisplayObject,
+            NumericInputObject, OptionEntity, OptionsLayout, OptionsObject, PenStyle, Plot,
+            PlotScale, Point, Pointer, Polarity, PopupContent, PrintingAction, ReportBalances,
+            ReportFlows, RestoreAction, Shape, SimulationAction, SliderObject,
+            StackedContainerObject, StockObject, SwitchAction, SwitchObject, SwitchStyle,
+            TableItem, TableItemType, TableObject, TableOrientation, TextBoxAppearance,
+            TextBoxObject, VideoContent, Zone, ZoneType,
+        },
+        style::{
+            BorderStyle, BorderWidth, Color, FontStyle, FontWeight, Style, TextAlign,
+            TextDecoration, VerticalTextAlign,
+        },
+    },
+    xml::{
+        deserialize::{
+            DeserializeError,
+            helpers::{
+                parse_border_width, parse_color, parse_font_style, parse_font_weight,
+                parse_text_align, parse_text_decoration, parse_text_padding,
+                parse_vertical_text_align, read_number_content, read_text_content,
+            },
+            style::deserialize_style_impl,
+            variables::{
+                deserialize_event_poster, deserialize_format, deserialize_range, deserialize_scale,
+                read_expression,
+            },
+        },
+        quick::de::{Attrs, skip_element},
+    },
+};
 
-use crate::Expression;
-use crate::equation::Identifier;
-use crate::equation::units::UnitEquation;
-use crate::model::events::EventPoster;
-use crate::model::groups::{Group, GroupEntity};
-use crate::model::object::{DeviceRange, DeviceScale, DisplayAs, Documentation, FormatOptions};
 #[cfg(feature = "arrays")]
-use crate::model::vars::array::{ArrayElement, VariableDimensions};
+use crate::{
+    model::vars::array::{ArrayElement, VariableDimensions},
+    xml::deserialize::variables::deserialize_array_element,
+    xml::deserialize::variables::deserialize_dimensions,
+};
+
 #[cfg(feature = "submodels")]
 use crate::model::vars::module::{Module, ModuleConnection};
-use crate::model::vars::{
-    aux::Auxiliary,
-    flow::BasicFlow,
-    stock::{BasicStock, ConveyorStock, QueueStock, Stock},
-};
-use crate::view::objects::{
-    AliasObject, AuxObject, ButtonAppearance, ButtonObject, ButtonStyle, ConnectorObject,
-    DataAction, FileAction, FlowObject, GaugeObject, GraphObject, GraphType, GraphicalInputObject,
-    GraphicsFrameContent, GraphicsFrameObject, GroupObject, ImageContent, KnobObject, LampObject,
-    LineStyle, Link, LinkEffect, LinkTarget, ListInputObject, MenuAction, MiscellaneousAction,
-    ModuleObject, NumericDisplayObject, NumericInputObject, OptionEntity, OptionsLayout,
-    OptionsObject, PenStyle, Plot, PlotScale, Point, Pointer, Polarity, PopupContent,
-    PrintingAction, ReportBalances, ReportFlows, RestoreAction, Shape, SimulationAction,
-    SliderObject, StackedContainerObject, StockObject, SwitchAction, SwitchObject, SwitchStyle,
-    TableItem, TableItemType, TableObject, TableOrientation, TextBoxAppearance, TextBoxObject,
-    VideoContent, Zone, ZoneType,
-};
-use crate::view::style::{
-    BorderStyle, BorderWidth, Color, FontStyle, FontWeight, TextAlign, TextDecoration,
-    VerticalTextAlign,
-};
-use crate::view::{PageOrientation, PageSequence, Style, View, ViewType};
-use crate::xml::deserialize::DeserializeError;
-use crate::xml::deserialize::helpers::{read_number_content, read_text_content};
-#[cfg(feature = "arrays")]
-use crate::xml::deserialize::variables::{deserialize_array_element, deserialize_dimensions};
-use crate::xml::deserialize::variables::{
-    deserialize_event_poster, deserialize_format, deserialize_range, deserialize_scale,
-    read_expression,
-};
-use crate::xml::quick::de::skip_element;
+
+/// Helper to parse common object attributes (uid, name, x, y, width, height) from Attrs.
+fn parse_object_attrs(
+    attrs: &Attrs,
+) -> Result<
+    (
+        Option<i32>,
+        Option<String>,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+    ),
+    DeserializeError,
+> {
+    let uid = attrs.get_opt_i32("uid")?;
+    let name = attrs.get_opt_string("name");
+    let x = attrs.get_opt_f64("x")?;
+    let y = attrs.get_opt_f64("y")?;
+    let width = attrs.get_opt_f64("width")?;
+    let height = attrs.get_opt_f64("height")?;
+    Ok((uid, name, x, y, width, height))
+}
 pub fn deserialize_views<R: BufRead>(
     reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
 ) -> Result<crate::xml::schema::Views, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"views" => {
-            let mut visible_view: Option<u32> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                if attr.key.as_ref() == b"visible_view" {
-                    let visible_str = attr.decode_and_unescape_value(reader)?.to_string();
-                    visible_view = Some(visible_str.parse().map_err(|e| {
-                        DeserializeError::Custom(format!("Invalid visible_view value: {}", e))
-                    })?);
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let visible_view = attrs.get_opt_u32("visible_view")?;
 
             buf.clear();
             deserialize_views_impl(reader, buf, visible_view)
@@ -96,37 +123,36 @@ pub(crate) fn deserialize_views_impl<R: BufRead>(
     buf: &mut Vec<u8>,
     visible_view: Option<u32>,
 ) -> Result<crate::xml::schema::Views, DeserializeError> {
-    let style: Option<Style> = None;
+    let mut style: Option<Style> = None;
     let mut views = Vec::new();
 
     loop {
         match reader.read_event_into(buf)? {
             Event::Start(e) if e.name().as_ref() == b"view" => {
-                // Extract attributes from start tag and call impl
-                let attrs: Vec<_> = e
-                    .attributes()
-                    .filter_map(|a| a.ok())
-                    .map(|a| {
-                        (
-                            a.key.as_ref().to_vec(),
-                            String::from_utf8_lossy(&a.value).to_string(),
-                        )
-                    })
-                    .collect();
+                let attrs_obj = Attrs::from_start(&e, reader)?;
+                let attrs = attrs_obj.to_vec();
                 buf.clear();
                 views.push(deserialize_view_impl(reader, buf, attrs)?);
             }
             Event::Start(e) if e.name().as_ref() == b"style" => {
-                // TODO: Implement style deserialization
-                let element_name = e.name().as_ref().to_vec();
-                loop {
-                    match reader.read_event_into(buf)? {
-                        Event::End(e) if e.name().as_ref() == element_name.as_slice() => break,
-                        Event::Eof => return Err(DeserializeError::UnexpectedEof),
-                        _ => {}
-                    }
-                    buf.clear();
-                }
+                let attrs_obj = Attrs::from_start(&e, reader)?;
+                buf.clear();
+                style = Some(deserialize_style_impl(
+                    reader,
+                    buf,
+                    attrs_obj.to_vec(),
+                    false,
+                )?);
+            }
+            Event::Empty(e) if e.name().as_ref() == b"style" => {
+                let attrs_obj = Attrs::from_start(&e, reader)?;
+                buf.clear();
+                style = Some(deserialize_style_impl(
+                    reader,
+                    buf,
+                    attrs_obj.to_vec(),
+                    true,
+                )?);
             }
             Event::End(e) if e.name().as_ref() == b"views" => break,
             Event::Eof => return Err(DeserializeError::UnexpectedEof),
@@ -149,152 +175,49 @@ pub fn deserialize_view<R: BufRead>(
 ) -> Result<View, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"view" => {
-            let mut uid: Option<i32> = None;
-            let mut view_type: Option<ViewType> = None;
-            let mut order: Option<u32> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut zoom: Option<f64> = None;
-            let mut scroll_x: Option<f64> = None;
-            let mut scroll_y: Option<f64> = None;
-            let mut background: Option<String> = None;
-            let mut page_width: Option<f64> = None;
-            let mut page_height: Option<f64> = None;
-            let mut page_sequence: Option<PageSequence> = None;
-            let mut page_orientation: Option<PageOrientation> = None;
-            let mut show_pages: Option<bool> = None;
-            let mut home_page: Option<u32> = None;
-            let mut home_view: Option<bool> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"type" => {
-                        let type_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        view_type = Some(parse_view_type(&type_str)?);
-                    }
-                    b"order" => {
-                        let order_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        order = Some(order_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid order value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"zoom" => {
-                        let zoom_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        zoom = Some(zoom_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid zoom value: {}", e))
-                        })?);
-                    }
-                    b"scroll_x" => {
-                        let scroll_x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        scroll_x = Some(scroll_x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid scroll_x value: {}", e))
-                        })?);
-                    }
-                    b"scroll_y" => {
-                        let scroll_y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        scroll_y = Some(scroll_y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid scroll_y value: {}", e))
-                        })?);
-                    }
-                    b"background" => {
-                        background = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"page_width" => {
-                        let page_width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        page_width = Some(page_width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid page_width value: {}", e))
-                        })?);
-                    }
-                    b"page_height" => {
-                        let page_height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        page_height = Some(page_height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid page_height value: {}", e))
-                        })?);
-                    }
-                    b"page_sequence" => {
-                        let seq_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        page_sequence = Some(match seq_str.as_str() {
-                            "row" => PageSequence::Row,
-                            "column" => PageSequence::Column,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid page_sequence: {}",
-                                    seq_str
-                                )));
-                            }
-                        });
-                    }
-                    b"page_orientation" => {
-                        let orient_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        page_orientation = Some(match orient_str.as_str() {
-                            "landscape" => PageOrientation::Landscape,
-                            "portrait" => PageOrientation::Portrait,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid page_orientation: {}",
-                                    orient_str
-                                )));
-                            }
-                        });
-                    }
-                    b"show_pages" => {
-                        let show_pages_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_pages = Some(match show_pages_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_pages value: {}",
-                                    show_pages_str
-                                )));
-                            }
-                        });
-                    }
-                    b"home_page" => {
-                        let home_page_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        home_page = Some(home_page_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid home_page value: {}", e))
-                        })?);
-                    }
-                    b"home_view" => {
-                        let home_view_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        home_view = Some(match home_view_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid home_view value: {}",
-                                    home_view_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let view_type = attrs
+                .get_opt("type")
+                .map(|s| parse_view_type(s))
+                .transpose()?;
+            let order = attrs.get_opt_u32("order")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let zoom = attrs.get_opt_f64("zoom")?;
+            let scroll_x = attrs.get_opt_f64("scroll_x")?;
+            let scroll_y = attrs.get_opt_f64("scroll_y")?;
+            let background = attrs.get_opt_string("background");
+            let page_width = attrs.get_opt_f64("page_width")?;
+            let page_height = attrs.get_opt_f64("page_height")?;
+            let page_sequence = attrs
+                .get_opt("page_sequence")
+                .map(|s| match s {
+                    "row" => Ok(PageSequence::Row),
+                    "column" => Ok(PageSequence::Column),
+                    _ => Err(DeserializeError::Custom(format!(
+                        "Invalid page_sequence: {}",
+                        s
+                    ))),
+                })
+                .transpose()?;
+            let page_orientation = attrs
+                .get_opt("page_orientation")
+                .map(|s| match s {
+                    "landscape" => Ok(PageOrientation::Landscape),
+                    "portrait" => Ok(PageOrientation::Portrait),
+                    _ => Err(DeserializeError::Custom(format!(
+                        "Invalid page_orientation: {}",
+                        s
+                    ))),
+                })
+                .transpose()?;
+            let show_pages = attrs.get_opt_bool("show_pages")?;
+            let home_page = attrs.get_opt_u32("home_page")?;
+            let home_view = attrs.get_opt_bool("home_view")?;
 
             // Read child elements
-            let style: Option<Style> = None;
+            let mut style: Option<Style> = None;
             let mut stocks = Vec::new();
             let mut flows = Vec::new();
             let mut auxes = Vec::new();
@@ -324,20 +247,14 @@ pub fn deserialize_view<R: BufRead>(
                     Event::Start(e) => {
                         match e.name().as_ref() {
                             b"style" => {
-                                // TODO: Deserialize style
-                                let element_name = e.name().as_ref().to_vec();
-                                loop {
-                                    match reader.read_event_into(buf)? {
-                                        Event::End(e)
-                                            if e.name().as_ref() == element_name.as_slice() =>
-                                        {
-                                            break;
-                                        }
-                                        Event::Eof => return Err(DeserializeError::UnexpectedEof),
-                                        _ => {}
-                                    }
-                                    buf.clear();
-                                }
+                                let attrs_obj = Attrs::from_start(&e, reader)?;
+                                buf.clear();
+                                style = Some(deserialize_style_impl(
+                                    reader,
+                                    buf,
+                                    attrs_obj.to_vec(),
+                                    false,
+                                )?);
                             }
                             b"stock" => {
                                 stocks.push(deserialize_stock_object(reader, buf)?);
@@ -350,75 +267,9 @@ pub fn deserialize_view<R: BufRead>(
                             }
                             b"module" => {
                                 // Extract attributes from the start event
-                                let mut uid: Option<i32> = None;
-                                let mut name: Option<String> = None;
-                                let mut x: Option<f64> = None;
-                                let mut y: Option<f64> = None;
-                                let mut width: Option<f64> = None;
-                                let mut height: Option<f64> = None;
+                                let attrs = Attrs::from_start(&e, reader)?;
+                                let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
                                 let display_attrs = read_display_attributes(&e, reader)?;
-
-                                for attr in e.attributes() {
-                                    let attr = attr?;
-                                    match attr.key.as_ref() {
-                                        b"uid" => {
-                                            let uid_str =
-                                                attr.decode_and_unescape_value(reader)?.to_string();
-                                            uid = Some(uid_str.parse().map_err(|err| {
-                                                DeserializeError::Custom(format!(
-                                                    "Invalid uid value: {}",
-                                                    err
-                                                ))
-                                            })?);
-                                        }
-                                        b"name" => {
-                                            name = Some(
-                                                attr.decode_and_unescape_value(reader)?.to_string(),
-                                            );
-                                        }
-                                        b"x" => {
-                                            let x_str =
-                                                attr.decode_and_unescape_value(reader)?.to_string();
-                                            x = Some(x_str.parse().map_err(|err| {
-                                                DeserializeError::Custom(format!(
-                                                    "Invalid x value: {}",
-                                                    err
-                                                ))
-                                            })?);
-                                        }
-                                        b"y" => {
-                                            let y_str =
-                                                attr.decode_and_unescape_value(reader)?.to_string();
-                                            y = Some(y_str.parse().map_err(|err| {
-                                                DeserializeError::Custom(format!(
-                                                    "Invalid y value: {}",
-                                                    err
-                                                ))
-                                            })?);
-                                        }
-                                        b"width" => {
-                                            let width_str =
-                                                attr.decode_and_unescape_value(reader)?.to_string();
-                                            width = Some(width_str.parse().map_err(|err| {
-                                                DeserializeError::Custom(format!(
-                                                    "Invalid width value: {}",
-                                                    err
-                                                ))
-                                            })?);
-                                        }
-                                        b"height" => {
-                                            let height_str =
-                                                attr.decode_and_unescape_value(reader)?.to_string();
-                                            height = Some(height_str.parse().map_err(|err| {
-                                                DeserializeError::Custom(format!(
-                                                    "Invalid height value: {}",
-                                                    err
-                                                ))
-                                            })?);
-                                        }
-                                        _ => {}
-                                    }
-                                }
 
                                 // Read child elements (shape)
                                 let mut shape: Option<Shape> = None;
@@ -732,7 +583,8 @@ pub(crate) fn deserialize_view_impl<R: BufRead>(
     }
 
     // Read child elements
-    let style: Option<Style> = None;
+    #[allow(unused_mut)]
+    let mut style: Option<Style> = None;
     let mut stocks = Vec::new();
     let flows = Vec::new();
     let auxes = Vec::new();
@@ -765,57 +617,8 @@ pub(crate) fn deserialize_view_impl<R: BufRead>(
                 match element_name.as_slice() {
                     b"stock" => {
                         // Extract attributes and create StockObject
-                        let mut uid: Option<i32> = None;
-                        let mut name: Option<String> = None;
-                        let mut x: Option<f64> = None;
-                        let mut y: Option<f64> = None;
-                        let mut width: Option<f64> = None;
-                        let mut height: Option<f64> = None;
-
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"uid" => {
-                                    uid = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0),
-                                    )
-                                }
-                                b"name" => {
-                                    name = Some(attr.decode_and_unescape_value(reader)?.to_string())
-                                }
-                                b"x" => {
-                                    x = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"y" => {
-                                    y = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"width" => {
-                                    width = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"height" => {
-                                    height = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
                         buf.clear();
 
                         // Skip to end of stock element
@@ -858,58 +661,9 @@ pub(crate) fn deserialize_view_impl<R: BufRead>(
                     }
                     b"module" => {
                         // Extract attributes and create ModuleObject
-                        let mut uid: Option<i32> = None;
-                        let mut name: Option<String> = None;
-                        let mut x: Option<f64> = None;
-                        let mut y: Option<f64> = None;
-                        let mut width: Option<f64> = None;
-                        let mut height: Option<f64> = None;
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
                         let display_attrs = read_display_attributes(&e, reader)?;
-
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"uid" => {
-                                    uid = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0),
-                                    )
-                                }
-                                b"name" => {
-                                    name = Some(attr.decode_and_unescape_value(reader)?.to_string())
-                                }
-                                b"x" => {
-                                    x = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"y" => {
-                                    y = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"width" => {
-                                    width = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"height" => {
-                                    height = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                _ => {}
-                            }
-                        }
 
                         // Read child elements (shape)
                         let mut shape: Option<Shape> = None;
@@ -917,53 +671,12 @@ pub(crate) fn deserialize_view_impl<R: BufRead>(
                         loop {
                             match reader.read_event_into(buf)? {
                                 Event::Start(inner_e) if inner_e.name().as_ref() == b"shape" => {
-                                    // Extract shape attributes
-                                    let mut shape_type: Option<String> = None;
-                                    let mut shape_width: Option<f64> = None;
-                                    let mut shape_height: Option<f64> = None;
-                                    let mut corner_radius: Option<f64> = None;
-                                    let mut radius: Option<f64> = None;
-
-                                    for attr in inner_e.attributes() {
-                                        let attr = attr?;
-                                        match attr.key.as_ref() {
-                                            b"type" => {
-                                                shape_type = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .to_string(),
-                                                )
-                                            }
-                                            b"width" => {
-                                                shape_width = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            b"height" => {
-                                                shape_height = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            b"corner_radius" => {
-                                                corner_radius = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            b"radius" => {
-                                                radius = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            _ => {}
-                                        }
-                                    }
+                                    let shape_attrs = Attrs::from_start(&inner_e, reader)?;
+                                    let shape_type = shape_attrs.get_opt_string("type");
+                                    let shape_width = shape_attrs.get_opt_f64("width")?;
+                                    let shape_height = shape_attrs.get_opt_f64("height")?;
+                                    let corner_radius = shape_attrs.get_opt_f64("corner_radius")?;
+                                    let radius = shape_attrs.get_opt_f64("radius")?;
 
                                     // Skip to end of shape element
                                     buf.clear();
@@ -1000,53 +713,12 @@ pub(crate) fn deserialize_view_impl<R: BufRead>(
                                     });
                                 }
                                 Event::Empty(inner_e) if inner_e.name().as_ref() == b"shape" => {
-                                    // Extract shape attributes from empty tag
-                                    let mut shape_type: Option<String> = None;
-                                    let mut shape_width: Option<f64> = None;
-                                    let mut shape_height: Option<f64> = None;
-                                    let mut corner_radius: Option<f64> = None;
-                                    let mut radius: Option<f64> = None;
-
-                                    for attr in inner_e.attributes() {
-                                        let attr = attr?;
-                                        match attr.key.as_ref() {
-                                            b"type" => {
-                                                shape_type = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .to_string(),
-                                                )
-                                            }
-                                            b"width" => {
-                                                shape_width = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            b"height" => {
-                                                shape_height = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            b"corner_radius" => {
-                                                corner_radius = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            b"radius" => {
-                                                radius = Some(
-                                                    attr.decode_and_unescape_value(reader)?
-                                                        .parse()
-                                                        .unwrap_or(0.0),
-                                                )
-                                            }
-                                            _ => {}
-                                        }
-                                    }
+                                    let shape_attrs = Attrs::from_start(&inner_e, reader)?;
+                                    let shape_type = shape_attrs.get_opt_string("type");
+                                    let shape_width = shape_attrs.get_opt_f64("width")?;
+                                    let shape_height = shape_attrs.get_opt_f64("height")?;
+                                    let corner_radius = shape_attrs.get_opt_f64("corner_radius")?;
+                                    let radius = shape_attrs.get_opt_f64("radius")?;
 
                                     // Create the shape based on type
                                     shape = shape_type.map(|t| match t.as_str() {
@@ -1127,57 +799,8 @@ pub(crate) fn deserialize_view_impl<R: BufRead>(
                 match e.name().as_ref() {
                     b"stock" => {
                         // Extract attributes and create StockObject
-                        let mut uid: Option<i32> = None;
-                        let mut name: Option<String> = None;
-                        let mut x: Option<f64> = None;
-                        let mut y: Option<f64> = None;
-                        let mut width: Option<f64> = None;
-                        let mut height: Option<f64> = None;
-
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"uid" => {
-                                    uid = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0),
-                                    )
-                                }
-                                b"name" => {
-                                    name = Some(attr.decode_and_unescape_value(reader)?.to_string())
-                                }
-                                b"x" => {
-                                    x = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"y" => {
-                                    y = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"width" => {
-                                    width = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                b"height" => {
-                                    height = Some(
-                                        attr.decode_and_unescape_value(reader)?
-                                            .parse()
-                                            .unwrap_or(0.0),
-                                    )
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
 
                         stocks.push(StockObject {
                             uid: crate::Uid::new(uid.unwrap_or(0)),
@@ -1270,53 +893,8 @@ pub fn deserialize_stock_object<R: BufRead>(
 ) -> Result<StockObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"stock" => {
-            let mut uid: Option<i32> = None;
-            let mut name: Option<String> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -1383,53 +961,8 @@ pub fn deserialize_flow_object<R: BufRead>(
 ) -> Result<FlowObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"flow" => {
-            let mut uid: Option<i32> = None;
-            let mut name: Option<String> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -1442,37 +975,9 @@ pub fn deserialize_flow_object<R: BufRead>(
                         loop {
                             match reader.read_event_into(buf)? {
                                 Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"pt" => {
-                                    let mut pt_x: Option<f64> = None;
-                                    let mut pt_y: Option<f64> = None;
-
-                                    for attr in e.attributes() {
-                                        let attr = attr?;
-                                        match attr.key.as_ref() {
-                                            b"x" => {
-                                                let x_str = attr
-                                                    .decode_and_unescape_value(reader)?
-                                                    .to_string();
-                                                pt_x = Some(x_str.parse().map_err(|e| {
-                                                    DeserializeError::Custom(format!(
-                                                        "Invalid pt x value: {}",
-                                                        e
-                                                    ))
-                                                })?);
-                                            }
-                                            b"y" => {
-                                                let y_str = attr
-                                                    .decode_and_unescape_value(reader)?
-                                                    .to_string();
-                                                pt_y = Some(y_str.parse().map_err(|e| {
-                                                    DeserializeError::Custom(format!(
-                                                        "Invalid pt y value: {}",
-                                                        e
-                                                    ))
-                                                })?);
-                                            }
-                                            _ => {}
-                                        }
-                                    }
+                                    let attrs = Attrs::from_start(&e, reader)?;
+                                    let pt_x = attrs.get_opt_f64("x")?;
+                                    let pt_y = attrs.get_opt_f64("y")?;
 
                                     if let (Some(x), Some(y)) = (pt_x, pt_y) {
                                         pts.push(Point { x, y });
@@ -1552,53 +1057,8 @@ pub fn deserialize_aux_object<R: BufRead>(
 ) -> Result<AuxObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"aux" => {
-            let mut uid: Option<i32> = None;
-            let mut name: Option<String> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -1682,165 +1142,114 @@ fn read_display_attributes<R: BufRead>(
     e: &quick_xml::events::BytesStart<'_>,
     reader: &Reader<R>,
 ) -> Result<DisplayAttributes, DeserializeError> {
-    let mut color: Option<Color> = None;
-    let mut background: Option<Color> = None;
-    let mut z_index: Option<i32> = None;
-    let mut font_family: Option<String> = None;
-    let mut font_size: Option<f64> = None;
-    let mut font_weight: Option<FontWeight> = None;
-    let mut font_style: Option<FontStyle> = None;
-    let mut text_decoration: Option<TextDecoration> = None;
-    let mut text_align: Option<TextAlign> = None;
-    let mut text_background: Option<Color> = None;
-    let mut vertical_text_align: Option<VerticalTextAlign> = None;
-    let mut text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)> = None;
-    let mut font_color: Option<Color> = None;
-    let mut text_border_color: Option<Color> = None;
-    let mut text_border_width: Option<BorderWidth> = None;
-    let mut text_border_style: Option<BorderStyle> = None;
-    let mut label_side: Option<String> = None;
-    let mut label_angle: Option<f64> = None;
+    let attrs = Attrs::from_start(e, reader)?;
 
-    for attr in e.attributes() {
-        let attr = attr?;
-        match attr.key.as_ref() {
-            b"color" => {
-                let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                color = Some(parse_color(&color_str)?);
-            }
-            b"background" => {
-                let bg_str = attr.decode_and_unescape_value(reader)?.to_string();
-                background = Some(parse_color(&bg_str)?);
-            }
-            b"z_index" => {
-                let z_str = attr.decode_and_unescape_value(reader)?.to_string();
-                z_index = Some(z_str.parse().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid z_index value: {}", e))
-                })?);
-            }
-            b"font_family" => {
-                font_family = Some(attr.decode_and_unescape_value(reader)?.to_string());
-            }
-            b"font_size" => {
-                let font_size_str = attr.decode_and_unescape_value(reader)?.to_string();
-                // Remove "pt" suffix if present
-                let font_size_clean = font_size_str.trim_end_matches("pt").trim();
-                font_size = Some(font_size_clean.parse().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid font_size value: {}", e))
-                })?);
-            }
-            b"font_weight" => {
-                let weight_str = attr.decode_and_unescape_value(reader)?.to_string();
-                font_weight = Some(match weight_str.as_str() {
-                    "normal" => FontWeight::Normal,
-                    "bold" => FontWeight::Bold,
-                    _ => {
-                        return Err(DeserializeError::Custom(format!(
-                            "Invalid font_weight: {}",
-                            weight_str
-                        )));
-                    }
-                });
-            }
-            b"font_style" => {
-                let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                font_style = Some(match style_str.as_str() {
-                    "normal" => FontStyle::Normal,
-                    "italic" => FontStyle::Italic,
-                    _ => {
-                        return Err(DeserializeError::Custom(format!(
-                            "Invalid font_style: {}",
-                            style_str
-                        )));
-                    }
-                });
-            }
-            b"text_decoration" => {
-                let dec_str = attr.decode_and_unescape_value(reader)?.to_string();
-                text_decoration = Some(match dec_str.as_str() {
-                    "normal" => TextDecoration::Normal,
-                    "underline" => TextDecoration::Underline,
-                    _ => {
-                        return Err(DeserializeError::Custom(format!(
-                            "Invalid text_decoration: {}",
-                            dec_str
-                        )));
-                    }
-                });
-            }
-            b"text_align" => {
-                let align_str = attr.decode_and_unescape_value(reader)?.to_string();
-                text_align = Some(match align_str.as_str() {
-                    "left" => TextAlign::Left,
-                    "right" => TextAlign::Right,
-                    "center" => TextAlign::Center,
-                    _ => {
-                        return Err(DeserializeError::Custom(format!(
-                            "Invalid text_align: {}",
-                            align_str
-                        )));
-                    }
-                });
-            }
-            b"text_background" => {
-                let bg_str = attr.decode_and_unescape_value(reader)?.to_string();
-                text_background = Some(parse_color(&bg_str)?);
-            }
-            b"vertical_text_align" => {
-                let align_str = attr.decode_and_unescape_value(reader)?.to_string();
-                vertical_text_align = Some(match align_str.as_str() {
-                    "top" => VerticalTextAlign::Top,
-                    "bottom" => VerticalTextAlign::Bottom,
-                    "center" => VerticalTextAlign::Center,
-                    _ => {
-                        return Err(DeserializeError::Custom(format!(
-                            "Invalid vertical_text_align: {}",
-                            align_str
-                        )));
-                    }
-                });
-            }
-            b"text_padding" => {
-                let padding_str = attr.decode_and_unescape_value(reader)?.to_string();
-                text_padding = Some(parse_text_padding(&padding_str)?);
-            }
-            b"font_color" => {
-                let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                font_color = Some(parse_color(&color_str)?);
-            }
-            b"text_border_color" => {
-                let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                text_border_color = Some(parse_color(&color_str)?);
-            }
-            b"text_border_width" => {
-                let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                text_border_width = Some(parse_border_width(&width_str)?);
-            }
-            b"text_border_style" => {
-                let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                text_border_style = Some(match style_str.as_str() {
-                    "none" => BorderStyle::None,
-                    "solid" => BorderStyle::Solid,
-                    _ => {
-                        return Err(DeserializeError::Custom(format!(
-                            "Invalid text_border_style: {}",
-                            style_str
-                        )));
-                    }
-                });
-            }
-            b"label_side" => {
-                label_side = Some(attr.decode_and_unescape_value(reader)?.to_string());
-            }
-            b"label_angle" => {
-                let angle_str = attr.decode_and_unescape_value(reader)?.to_string();
-                label_angle = Some(angle_str.parse().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid label_angle value: {}", e))
-                })?);
-            }
-            _ => {}
-        }
-    }
+    let color = attrs.get_opt("color").map(|s| parse_color(s)).transpose()?;
+    let background = attrs
+        .get_opt("background")
+        .map(|s| parse_color(s))
+        .transpose()?;
+    let z_index = attrs.get_opt_i32("z_index")?;
+    let font_family = attrs.get_opt_string("font_family");
+    let font_size = attrs
+        .get_opt("font_size")
+        .map(|s| {
+            let font_size_clean = s.trim_end_matches("pt").trim();
+            font_size_clean
+                .parse()
+                .map_err(|e| DeserializeError::Custom(format!("Invalid font_size value: {}", e)))
+        })
+        .transpose()?;
+    let font_weight = attrs
+        .get_opt("font_weight")
+        .map(|s| match s {
+            "normal" => Ok(FontWeight::Normal),
+            "bold" => Ok(FontWeight::Bold),
+            _ => Err(DeserializeError::Custom(format!(
+                "Invalid font_weight: {}",
+                s
+            ))),
+        })
+        .transpose()?;
+    let font_style = attrs
+        .get_opt("font_style")
+        .map(|s| match s {
+            "normal" => Ok(FontStyle::Normal),
+            "italic" => Ok(FontStyle::Italic),
+            _ => Err(DeserializeError::Custom(format!(
+                "Invalid font_style: {}",
+                s
+            ))),
+        })
+        .transpose()?;
+    let text_decoration = attrs
+        .get_opt("text_decoration")
+        .map(|s| match s {
+            "normal" => Ok(TextDecoration::Normal),
+            "underline" => Ok(TextDecoration::Underline),
+            _ => Err(DeserializeError::Custom(format!(
+                "Invalid text_decoration: {}",
+                s
+            ))),
+        })
+        .transpose()?;
+    let text_align = attrs
+        .get_opt("text_align")
+        .map(|s| match s {
+            "left" => Ok(TextAlign::Left),
+            "right" => Ok(TextAlign::Right),
+            "center" => Ok(TextAlign::Center),
+            _ => Err(DeserializeError::Custom(format!(
+                "Invalid text_align: {}",
+                s
+            ))),
+        })
+        .transpose()?;
+    let text_background = attrs
+        .get_opt("text_background")
+        .map(|s| parse_color(s))
+        .transpose()?;
+    let vertical_text_align = attrs
+        .get_opt("vertical_text_align")
+        .map(|s| match s {
+            "top" => Ok(VerticalTextAlign::Top),
+            "bottom" => Ok(VerticalTextAlign::Bottom),
+            "center" => Ok(VerticalTextAlign::Center),
+            _ => Err(DeserializeError::Custom(format!(
+                "Invalid vertical_text_align: {}",
+                s
+            ))),
+        })
+        .transpose()?;
+    let text_padding = attrs
+        .get_opt("text_padding")
+        .map(|s| parse_text_padding(s))
+        .transpose()?;
+    let font_color = attrs
+        .get_opt("font_color")
+        .map(|s| parse_color(s))
+        .transpose()?;
+    let text_border_color = attrs
+        .get_opt("text_border_color")
+        .map(|s| parse_color(s))
+        .transpose()?;
+    let text_border_width = attrs
+        .get_opt("text_border_width")
+        .map(|s| parse_border_width(s))
+        .transpose()?;
+    let text_border_style = attrs
+        .get_opt("text_border_style")
+        .map(|s| match s {
+            "none" => Ok(BorderStyle::None),
+            "solid" => Ok(BorderStyle::Solid),
+            _ => Err(DeserializeError::Custom(format!(
+                "Invalid text_border_style: {}",
+                s
+            ))),
+        })
+        .transpose()?;
+    let label_side = attrs.get_opt_string("label_side");
+    let label_angle = attrs.get_opt_f64("label_angle")?;
 
     Ok(DisplayAttributes {
         color,
@@ -1864,12 +1273,6 @@ fn read_display_attributes<R: BufRead>(
     })
 }
 
-// Use parsing functions from helpers module
-use crate::xml::deserialize::helpers::{
-    parse_border_width, parse_color, parse_font_style, parse_font_weight, parse_text_align,
-    parse_text_decoration, parse_text_padding, parse_vertical_text_align,
-};
-
 /// Deserialize a Shape from XML.
 fn deserialize_shape<R: BufRead>(
     reader: &mut Reader<R>,
@@ -1877,45 +1280,12 @@ fn deserialize_shape<R: BufRead>(
 ) -> Result<Shape, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"shape" => {
-            let mut shape_type: Option<String> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut corner_radius: Option<f64> = None;
-            let mut radius: Option<f64> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"type" => {
-                        shape_type = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"corner_radius" => {
-                        let radius_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        corner_radius = Some(radius_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid corner_radius value: {}", e))
-                        })?);
-                    }
-                    b"radius" => {
-                        let radius_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        radius = Some(radius_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid radius value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let shape_type = attrs.get_opt_string("type");
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let corner_radius = attrs.get_opt_f64("corner_radius")?;
+            let radius = attrs.get_opt_f64("radius")?;
 
             // If it's a start tag, read until end
             if matches!(reader.read_event_into(buf)?, Event::Start(_)) {
@@ -1962,53 +1332,8 @@ pub fn deserialize_module_object<R: BufRead>(
 ) -> Result<ModuleObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"module" => {
-            let mut uid: Option<i32> = None;
-            let mut name: Option<String> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -2060,53 +1385,8 @@ pub fn deserialize_module_object<R: BufRead>(
             })
         }
         Event::Empty(e) if e.name().as_ref() == b"module" => {
-            let mut uid: Option<i32> = None;
-            let mut name: Option<String> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|err| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", err))
-                        })?);
-                    }
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|err| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", err))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|err| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", err))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|err| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", err))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|err| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", err))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let (uid, name, x, y, width, height) = parse_object_attrs(&attrs)?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -2155,56 +1435,13 @@ pub fn deserialize_module_object_from_start<R: BufRead>(
     buf: &mut Vec<u8>,
     start_event: &quick_xml::events::BytesStart,
 ) -> Result<ModuleObject, DeserializeError> {
-    let mut uid: Option<i32> = None;
-    let mut name: Option<String> = None;
-    let mut x: Option<f64> = None;
-    let mut y: Option<f64> = None;
-    let mut width: Option<f64> = None;
-    let mut height: Option<f64> = None;
-
-    // Read attributes
-    for attr in start_event.attributes() {
-        let attr = attr?;
-        match attr.key.as_ref() {
-            b"uid" => {
-                let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                uid =
-                    Some(uid_str.parse().map_err(|e| {
-                        DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                    })?);
-            }
-            b"name" => {
-                name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-            }
-            b"x" => {
-                let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                x =
-                    Some(x_str.parse().map_err(|e| {
-                        DeserializeError::Custom(format!("Invalid x value: {}", e))
-                    })?);
-            }
-            b"y" => {
-                let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                y =
-                    Some(y_str.parse().map_err(|e| {
-                        DeserializeError::Custom(format!("Invalid y value: {}", e))
-                    })?);
-            }
-            b"width" => {
-                let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                width = Some(width_str.parse().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid width value: {}", e))
-                })?);
-            }
-            b"height" => {
-                let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                height = Some(height_str.parse().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid height value: {}", e))
-                })?);
-            }
-            _ => {}
-        }
-    }
+    let attrs = Attrs::from_start(start_event, reader)?;
+    let uid = attrs.get_opt_i32("uid")?;
+    let name = attrs.get_opt_string("name");
+    let x = attrs.get_opt_f64("x")?;
+    let y = attrs.get_opt_f64("y")?;
+    let width = attrs.get_opt_f64("width")?;
+    let height = attrs.get_opt_f64("height")?;
 
     // Read common display attributes
     let display_attrs = read_display_attributes(start_event, reader)?;
@@ -2260,53 +1497,12 @@ pub fn deserialize_group_object<R: BufRead>(
 ) -> Result<GroupObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"group" => {
-            let mut uid: Option<i32> = None;
-            let mut name: Option<String> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut locked: Option<bool> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"locked" => {
-                        let locked_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        locked = Some(match locked_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid locked value: {}",
-                                    locked_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let name = attrs.get_opt_string("name");
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let locked = attrs.get_opt_bool("locked")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -2318,20 +1514,8 @@ pub fn deserialize_group_object<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"item" => {
-                            let mut item_uid: Option<i32> = None;
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                if attr.key.as_ref() == b"uid" {
-                                    let uid_str =
-                                        attr.decode_and_unescape_value(reader)?.to_string();
-                                    item_uid = Some(uid_str.parse().map_err(|e| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid item uid value: {}",
-                                            e
-                                        ))
-                                    })?);
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let item_uid = attrs.get_opt_i32("uid")?;
                             if let Some(uid) = item_uid {
                                 items.push(crate::Uid::new(uid));
                             }
@@ -2397,66 +1581,20 @@ pub fn deserialize_connector_object<R: BufRead>(
 ) -> Result<ConnectorObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"connector" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut angle: Option<f64> = None;
-            let mut line_style: Option<LineStyle> = None;
-            let mut delay_mark: Option<bool> = None;
-            let mut polarity: Option<Polarity> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"angle" => {
-                        let angle_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        angle = Some(angle_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid angle value: {}", e))
-                        })?);
-                    }
-                    b"line_style" => {
-                        let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        line_style = Some(parse_line_style(&style_str)?);
-                    }
-                    b"delay_mark" => {
-                        let delay_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        delay_mark = Some(match delay_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid delay_mark value: {}",
-                                    delay_str
-                                )));
-                            }
-                        });
-                    }
-                    b"polarity" => {
-                        let polarity_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        polarity = Some(parse_polarity(&polarity_str)?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let angle = attrs.get_opt_f64("angle")?;
+            let line_style = attrs
+                .get_opt("line_style")
+                .map(|s| parse_line_style(s))
+                .transpose()?;
+            let delay_mark = attrs.get_opt_bool("delay_mark")?;
+            let polarity = attrs
+                .get_opt("polarity")
+                .map(|s| parse_polarity(s))
+                .transpose()?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -2477,37 +1615,9 @@ pub fn deserialize_connector_object<R: BufRead>(
                         loop {
                             match reader.read_event_into(buf)? {
                                 Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"pt" => {
-                                    let mut pt_x: Option<f64> = None;
-                                    let mut pt_y: Option<f64> = None;
-
-                                    for attr in e.attributes() {
-                                        let attr = attr?;
-                                        match attr.key.as_ref() {
-                                            b"x" => {
-                                                let x_str = attr
-                                                    .decode_and_unescape_value(reader)?
-                                                    .to_string();
-                                                pt_x = Some(x_str.parse().map_err(|e| {
-                                                    DeserializeError::Custom(format!(
-                                                        "Invalid pt x value: {}",
-                                                        e
-                                                    ))
-                                                })?);
-                                            }
-                                            b"y" => {
-                                                let y_str = attr
-                                                    .decode_and_unescape_value(reader)?
-                                                    .to_string();
-                                                pt_y = Some(y_str.parse().map_err(|e| {
-                                                    DeserializeError::Custom(format!(
-                                                        "Invalid pt y value: {}",
-                                                        e
-                                                    ))
-                                                })?);
-                                            }
-                                            _ => {}
-                                        }
-                                    }
+                                    let attrs = Attrs::from_start(&e, reader)?;
+                                    let pt_x = attrs.get_opt_f64("x")?;
+                                    let pt_y = attrs.get_opt_f64("y")?;
 
                                     if let (Some(x), Some(y)) = (pt_x, pt_y) {
                                         pts.push(Point { x, y });
@@ -2587,35 +1697,10 @@ pub fn deserialize_alias_object<R: BufRead>(
 ) -> Result<AliasObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"alias" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -2685,16 +1770,8 @@ fn deserialize_pointer<R: BufRead>(
     // Peek at the next event to see if it's an alias tag or text
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"alias" => {
-            let mut uid: Option<i32> = None;
-            for attr in e.attributes() {
-                let attr = attr?;
-                if attr.key.as_ref() == b"uid" {
-                    let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                    uid = Some(uid_str.parse().map_err(|e| {
-                        DeserializeError::Custom(format!("Invalid alias uid value: {}", e))
-                    })?);
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
 
             // If it's a start tag (not empty), read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -2752,55 +1829,13 @@ pub fn deserialize_stacked_container_object<R: BufRead>(
 ) -> Result<StackedContainerObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"stacked_container" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut visible_index: Option<usize> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"visible_index" => {
-                        let index_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        visible_index = Some(index_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid visible_index value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let visible_index = attrs.get_opt_usize("visible_index")?;
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -2841,104 +1876,17 @@ pub fn deserialize_slider_object<R: BufRead>(
 ) -> Result<SliderObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"slider" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut min: Option<f64> = None;
-            let mut max: Option<f64> = None;
-            let mut show_name: Option<bool> = None;
-            let mut show_number: Option<bool> = None;
-            let mut show_min_max: Option<bool> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"min" => {
-                        let min_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        min = Some(min_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid min value: {}", e))
-                        })?);
-                    }
-                    b"max" => {
-                        let max_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        max = Some(max_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid max value: {}", e))
-                        })?);
-                    }
-                    b"show_name" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_name = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_name value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"show_number" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_number = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_number value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"show_min_max" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_min_max = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_min_max value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let min = attrs.get_opt_f64("min")?;
+            let max = attrs.get_opt_f64("max")?;
+            let show_name = attrs.get_opt_bool("show_name")?;
+            let show_number = attrs.get_opt_bool("show_number")?;
+            let show_min_max = attrs.get_opt_bool("show_min_max")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -2951,13 +1899,8 @@ pub fn deserialize_slider_object<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"entity" => {
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                if attr.key.as_ref() == b"name" {
-                                    entity_name =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            entity_name = attrs.get_opt_string("name");
 
                             // If it's a start tag, read until end
                             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -2972,14 +1915,8 @@ pub fn deserialize_slider_object<R: BufRead>(
                             }
                         }
                         Event::Start(e) if e.name().as_ref() == b"reset_to" => {
-                            let mut after: Option<String> = None;
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                if attr.key.as_ref() == b"after" {
-                                    after =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let after = attrs.get_opt_string("after");
                             let value_str = read_text_content(reader, buf)?;
                             let value = value_str.parse::<f64>().map_err(|e| {
                                 DeserializeError::Custom(format!("Invalid reset_to value: {}", e))
@@ -3046,104 +1983,17 @@ pub fn deserialize_knob_object<R: BufRead>(
     // We can reuse the same logic but check for "knob" instead
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"knob" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut min: Option<f64> = None;
-            let mut max: Option<f64> = None;
-            let mut show_name: Option<bool> = None;
-            let mut show_number: Option<bool> = None;
-            let mut show_min_max: Option<bool> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"min" => {
-                        let min_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        min = Some(min_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid min value: {}", e))
-                        })?);
-                    }
-                    b"max" => {
-                        let max_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        max = Some(max_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid max value: {}", e))
-                        })?);
-                    }
-                    b"show_name" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_name = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_name value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"show_number" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_number = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_number value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"show_min_max" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_min_max = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_min_max value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let min = attrs.get_opt_f64("min")?;
+            let max = attrs.get_opt_f64("max")?;
+            let show_name = attrs.get_opt_bool("show_name")?;
+            let show_number = attrs.get_opt_bool("show_number")?;
+            let show_min_max = attrs.get_opt_bool("show_min_max")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -3155,13 +2005,8 @@ pub fn deserialize_knob_object<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"entity" => {
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                if attr.key.as_ref() == b"name" {
-                                    entity_name =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            entity_name = attrs.get_opt_string("name");
 
                             // If it's a start tag, read until end
                             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -3243,100 +2088,22 @@ pub fn deserialize_switch_object<R: BufRead>(
 ) -> Result<SwitchObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"switch" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut show_name: Option<bool> = None;
-            let mut switch_style: Option<SwitchStyle> = None;
-            let mut clicking_sound: Option<bool> = None;
-            let mut entity_name: Option<String> = None;
-            let mut entity_value: Option<f64> = None;
-            let mut group_name: Option<String> = None;
-            let mut module_name: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"show_name" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_name = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_name value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"switch_style" => {
-                        let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        switch_style = Some(parse_switch_style(&style_str)?);
-                    }
-                    b"clicking_sound" => {
-                        let sound_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        clicking_sound = Some(match sound_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid clicking_sound value: {}",
-                                    sound_str
-                                )));
-                            }
-                        });
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"entity_value" => {
-                        let value_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        entity_value = Some(value_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid entity_value: {}", e))
-                        })?);
-                    }
-                    b"group_name" => {
-                        group_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"module_name" => {
-                        module_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let show_name = attrs.get_opt_bool("show_name")?;
+            let switch_style = attrs
+                .get_opt("switch_style")
+                .map(|s| parse_switch_style(s))
+                .transpose()?;
+            let clicking_sound = attrs.get_opt_bool("clicking_sound")?;
+            let entity_name = attrs.get_opt_string("entity_name");
+            let entity_value = attrs.get_opt_f64("entity_value")?;
+            let group_name = attrs.get_opt_string("group_name");
+            let module_name = attrs.get_opt_string("module_name");
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -3348,14 +2115,8 @@ pub fn deserialize_switch_object<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) if e.name().as_ref() == b"reset_to" => {
-                            let mut after: Option<String> = None;
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                if attr.key.as_ref() == b"after" {
-                                    after =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let after = attrs.get_opt_string("after");
                             let value_str = read_text_content(reader, buf)?;
                             let value = value_str.parse::<f64>().map_err(|e| {
                                 DeserializeError::Custom(format!("Invalid reset_to value: {}", e))
@@ -3437,73 +2198,18 @@ pub fn deserialize_options_object<R: BufRead>(
 ) -> Result<OptionsObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"options" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut layout: Option<OptionsLayout> = None;
-            let mut horizontal_spacing: Option<f64> = None;
-            let mut vertical_spacing: Option<f64> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"layout" => {
-                        let layout_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        layout = Some(parse_options_layout(&layout_str)?);
-                    }
-                    b"horizontal_spacing" => {
-                        let spacing_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        horizontal_spacing = Some(spacing_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!(
-                                "Invalid horizontal_spacing value: {}",
-                                e
-                            ))
-                        })?);
-                    }
-                    b"vertical_spacing" => {
-                        let spacing_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        vertical_spacing = Some(spacing_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!(
-                                "Invalid vertical_spacing value: {}",
-                                e
-                            ))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let layout = attrs
+                .get_opt("layout")
+                .map(|s| parse_options_layout(s))
+                .transpose()?;
+            let horizontal_spacing = attrs.get_opt_f64("horizontal_spacing")?;
+            let vertical_spacing = attrs.get_opt_f64("vertical_spacing")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -3515,26 +2221,10 @@ pub fn deserialize_options_object<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"entity" => {
-                            let mut entity_name: Option<String> = None;
-                            let mut index: Option<String> = None;
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let entity_name = attrs.get_opt_string("name");
+                            let index = attrs.get_opt_string("index");
                             let mut value: Option<f64> = None;
-
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                match attr.key.as_ref() {
-                                    b"name" => {
-                                        entity_name = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    b"index" => {
-                                        index = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    _ => {}
-                                }
-                            }
 
                             // Read text content for value
                             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -3612,84 +2302,18 @@ pub fn deserialize_numeric_input_object<R: BufRead>(
 ) -> Result<NumericInputObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"numeric_input" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut entity_name: Option<String> = None;
-            let mut entity_index: Option<String> = None;
-            let mut min: Option<f64> = None;
-            let mut max: Option<f64> = None;
-            let mut precision: Option<f64> = None;
-            let mut value: Option<f64> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"entity_index" => {
-                        entity_index = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"min" => {
-                        let min_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        min = Some(min_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid min value: {}", e))
-                        })?);
-                    }
-                    b"max" => {
-                        let max_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        max = Some(max_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid max value: {}", e))
-                        })?);
-                    }
-                    b"precision" => {
-                        let precision_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        precision = Some(precision_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid precision value: {}", e))
-                        })?);
-                    }
-                    b"value" => {
-                        let value_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        value = Some(value_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let entity_name = attrs.get_opt_string("entity_name");
+            let entity_index = attrs.get_opt_string("entity_index");
+            let min = attrs.get_opt_f64("min")?;
+            let max = attrs.get_opt_f64("max")?;
+            let precision = attrs.get_opt_f64("precision")?;
+            let value = attrs.get_opt_f64("value")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -3754,59 +2378,14 @@ pub fn deserialize_list_input_object<R: BufRead>(
 ) -> Result<ListInputObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"list_input" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut name: Option<String> = None;
-            let mut column_width: Option<f64> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"name" => {
-                        name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"column_width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        column_width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid column_width value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let name = attrs.get_opt_string("name");
+            let column_width = attrs.get_opt_f64("column_width")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -3873,28 +2452,10 @@ fn deserialize_view_graphical_function_data<R: BufRead>(
 ) -> Result<crate::view::objects::GraphicalFunctionData, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"gf" => {
-            let mut xscale_min: Option<f64> = None;
-            let mut xscale_max: Option<f64> = None;
+            let attrs = Attrs::from_start(&e, reader)?;
+            let xscale_min = attrs.get_opt_f64("xscale_min")?;
+            let xscale_max = attrs.get_opt_f64("xscale_max")?;
             let mut ypts: Vec<f64> = Vec::new();
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"xscale_min" => {
-                        let min_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        xscale_min = Some(min_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid xscale_min value: {}", e))
-                        })?);
-                    }
-                    b"xscale_max" => {
-                        let max_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        xscale_max = Some(max_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid xscale_max value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
 
             // Read ypts from text content
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -3941,52 +2502,13 @@ pub fn deserialize_graphical_input_object<R: BufRead>(
 ) -> Result<GraphicalInputObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"graphical_input" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut entity_name: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let entity_name = attrs.get_opt_string("entity_name");
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -4053,101 +2575,17 @@ pub fn deserialize_numeric_display_object<R: BufRead>(
 ) -> Result<NumericDisplayObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"numeric_display" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut entity_name: Option<String> = None;
-            let mut show_name: Option<bool> = None;
-            let mut retain_ending_value: Option<bool> = None;
-            let mut precision: Option<f64> = None;
-            let mut delimit_000s: Option<bool> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"show_name" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_name = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_name value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"retain_ending_value" => {
-                        let retain_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        retain_ending_value = Some(match retain_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid retain_ending_value: {}",
-                                    retain_str
-                                )));
-                            }
-                        });
-                    }
-                    b"precision" => {
-                        let precision_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        precision = Some(precision_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid precision value: {}", e))
-                        })?);
-                    }
-                    b"delimit_000s" => {
-                        let delimit_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        delimit_000s = Some(match delimit_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid delimit_000s value: {}",
-                                    delimit_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let entity_name = attrs.get_opt_string("entity_name");
+            let show_name = attrs.get_opt_bool("show_name")?;
+            let retain_ending_value = attrs.get_opt_bool("retain_ending_value")?;
+            let precision = attrs.get_opt_f64("precision")?;
+            let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -4224,41 +2662,15 @@ fn deserialize_zone<R: BufRead>(
 ) -> Result<Zone, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"zone" => {
-            let mut zone_type: Option<ZoneType> = None;
-            let mut color: Option<Color> = None;
-            let mut min: Option<f64> = None;
-            let mut max: Option<f64> = None;
-            let mut sound: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"type" => {
-                        let type_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        zone_type = Some(parse_zone_type(&type_str)?);
-                    }
-                    b"color" => {
-                        let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        color = Some(parse_color(&color_str)?);
-                    }
-                    b"min" => {
-                        let min_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        min = Some(min_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid zone min value: {}", e))
-                        })?);
-                    }
-                    b"max" => {
-                        let max_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        max = Some(max_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid zone max value: {}", e))
-                        })?);
-                    }
-                    b"sound" => {
-                        sound = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let zone_type = attrs
+                .get_opt("type")
+                .map(|s| parse_zone_type(s))
+                .transpose()?;
+            let color = attrs.get_opt("color").map(|s| parse_color(s)).transpose()?;
+            let min = attrs.get_opt_f64("min")?;
+            let max = attrs.get_opt_f64("max")?;
+            let sound = attrs.get_opt_string("sound");
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -4295,94 +2707,16 @@ pub fn deserialize_lamp_object<R: BufRead>(
 ) -> Result<LampObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"lamp" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut entity_name: Option<String> = None;
-            let mut show_name: Option<bool> = None;
-            let mut retain_ending_value: Option<bool> = None;
-            let mut flash_on_panic: Option<bool> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"show_name" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_name = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_name value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"retain_ending_value" => {
-                        let retain_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        retain_ending_value = Some(match retain_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid retain_ending_value: {}",
-                                    retain_str
-                                )));
-                            }
-                        });
-                    }
-                    b"flash_on_panic" => {
-                        let flash_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        flash_on_panic = Some(match flash_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid flash_on_panic: {}",
-                                    flash_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let entity_name = attrs.get_opt_string("entity_name");
+            let show_name = attrs.get_opt_bool("show_name")?;
+            let retain_ending_value = attrs.get_opt_bool("retain_ending_value")?;
+            let flash_on_panic = attrs.get_opt_bool("flash_on_panic")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -4451,94 +2785,16 @@ pub fn deserialize_gauge_object<R: BufRead>(
 ) -> Result<GaugeObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"gauge" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut entity_name: Option<String> = None;
-            let mut show_name: Option<bool> = None;
-            let mut show_number: Option<bool> = None;
-            let mut retain_ending_value: Option<bool> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"show_name" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_name = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_name value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"show_number" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_number = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_number value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"retain_ending_value" => {
-                        let retain_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        retain_ending_value = Some(match retain_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid retain_ending_value: {}",
-                                    retain_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let entity_name = attrs.get_opt_string("entity_name");
+            let show_name = attrs.get_opt_bool("show_name")?;
+            let show_number = attrs.get_opt_bool("show_number")?;
+            let retain_ending_value = attrs.get_opt_bool("retain_ending_value")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -4634,27 +2890,9 @@ fn deserialize_plot_scale<R: BufRead>(
 ) -> Result<PlotScale, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"scale" => {
-            let mut min: Option<f64> = None;
-            let mut max: Option<f64> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"min" => {
-                        let min_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        min = Some(min_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid plot scale min value: {}", e))
-                        })?);
-                    }
-                    b"max" => {
-                        let max_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        max = Some(max_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid plot scale max value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let min = attrs.get_opt_f64("min")?;
+            let max = attrs.get_opt_f64("max")?;
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -4687,80 +2925,19 @@ fn deserialize_plot<R: BufRead>(
 ) -> Result<Plot, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"plot" => {
-            let mut index: Option<u32> = None;
-            let mut pen_width: Option<f64> = None;
-            let mut pen_style: Option<PenStyle> = None;
-            let mut show_y_axis: Option<bool> = None;
-            let mut title: Option<String> = None;
-            let mut right_axis: Option<bool> = None;
-            let mut entity_name: Option<String> = None;
-            let mut precision: Option<f64> = None;
-            let mut color: Option<Color> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"index" => {
-                        let index_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        index = Some(index_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid plot index value: {}", e))
-                        })?);
-                    }
-                    b"pen_width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        pen_width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid pen_width value: {}", e))
-                        })?);
-                    }
-                    b"pen_style" => {
-                        let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        pen_style = Some(parse_pen_style(&style_str)?);
-                    }
-                    b"show_y_axis" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_y_axis = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_y_axis value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"title" => {
-                        title = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"right_axis" => {
-                        let right_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        right_axis = Some(match right_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid right_axis value: {}",
-                                    right_str
-                                )));
-                            }
-                        });
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"precision" => {
-                        let precision_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        precision = Some(precision_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid precision value: {}", e))
-                        })?);
-                    }
-                    b"color" => {
-                        let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        color = Some(parse_color(&color_str)?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let index = attrs.get_opt_u32("index")?;
+            let pen_width = attrs.get_opt_f64("pen_width")?;
+            let pen_style = attrs
+                .get_opt("pen_style")
+                .map(|s| parse_pen_style(s))
+                .transpose()?;
+            let show_y_axis = attrs.get_opt_bool("show_y_axis")?;
+            let title = attrs.get_opt_string("title");
+            let right_axis = attrs.get_opt_bool("right_axis")?;
+            let entity_name = attrs.get_opt_string("entity_name");
+            let precision = attrs.get_opt_f64("precision")?;
+            let color = attrs.get_opt("color").map(|s| parse_color(s)).transpose()?;
 
             let mut scale: Option<PlotScale> = None;
 
@@ -4809,220 +2986,34 @@ pub fn deserialize_graph_object<R: BufRead>(
 ) -> Result<GraphObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"graph" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut graph_type: Option<GraphType> = None;
-            let mut title: Option<String> = None;
-            let mut doc: Option<String> = None;
-            let mut show_grid: Option<bool> = None;
-            let mut num_x_grid_lines: Option<u32> = None;
-            let mut num_y_grid_lines: Option<u32> = None;
-            let mut num_x_labels: Option<u32> = None;
-            let mut num_y_labels: Option<u32> = None;
-            let mut x_axis_title: Option<String> = None;
-            let mut right_axis_title: Option<String> = None;
-            let mut right_axis_auto_scale: Option<bool> = None;
-            let mut right_axis_multi_scale: Option<bool> = None;
-            let mut left_axis_title: Option<String> = None;
-            let mut left_axis_auto_scale: Option<bool> = None;
-            let mut left_axis_multi_scale: Option<bool> = None;
-            let mut plot_numbers: Option<bool> = None;
-            let mut comparative: Option<bool> = None;
-            let mut from: Option<f64> = None;
-            let mut to: Option<f64> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"graph_type" => {
-                        let type_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        graph_type = Some(parse_graph_type(&type_str)?);
-                    }
-                    b"title" => {
-                        title = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"doc" => {
-                        doc = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"show_grid" => {
-                        let show_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        show_grid = Some(match show_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid show_grid value: {}",
-                                    show_str
-                                )));
-                            }
-                        });
-                    }
-                    b"num_x_grid_lines" => {
-                        let num_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        num_x_grid_lines = Some(num_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!(
-                                "Invalid num_x_grid_lines value: {}",
-                                e
-                            ))
-                        })?);
-                    }
-                    b"num_y_grid_lines" => {
-                        let num_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        num_y_grid_lines = Some(num_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!(
-                                "Invalid num_y_grid_lines value: {}",
-                                e
-                            ))
-                        })?);
-                    }
-                    b"num_x_labels" => {
-                        let num_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        num_x_labels = Some(num_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid num_x_labels value: {}", e))
-                        })?);
-                    }
-                    b"num_y_labels" => {
-                        let num_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        num_y_labels = Some(num_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid num_y_labels value: {}", e))
-                        })?);
-                    }
-                    b"x_axis_title" => {
-                        x_axis_title = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"right_axis_title" => {
-                        right_axis_title =
-                            Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"right_axis_auto_scale" => {
-                        let auto_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        right_axis_auto_scale = Some(match auto_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid right_axis_auto_scale value: {}",
-                                    auto_str
-                                )));
-                            }
-                        });
-                    }
-                    b"right_axis_multi_scale" => {
-                        let multi_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        right_axis_multi_scale = Some(match multi_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid right_axis_multi_scale value: {}",
-                                    multi_str
-                                )));
-                            }
-                        });
-                    }
-                    b"left_axis_title" => {
-                        left_axis_title = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"left_axis_auto_scale" => {
-                        let auto_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        left_axis_auto_scale = Some(match auto_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid left_axis_auto_scale value: {}",
-                                    auto_str
-                                )));
-                            }
-                        });
-                    }
-                    b"left_axis_multi_scale" => {
-                        let multi_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        left_axis_multi_scale = Some(match multi_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid left_axis_multi_scale value: {}",
-                                    multi_str
-                                )));
-                            }
-                        });
-                    }
-                    b"plot_numbers" => {
-                        let plot_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        plot_numbers = Some(match plot_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid plot_numbers value: {}",
-                                    plot_str
-                                )));
-                            }
-                        });
-                    }
-                    b"comparative" => {
-                        let comp_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        comparative = Some(match comp_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid comparative value: {}",
-                                    comp_str
-                                )));
-                            }
-                        });
-                    }
-                    b"from" => {
-                        let from_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        from = Some(from_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid from value: {}", e))
-                        })?);
-                    }
-                    b"to" => {
-                        let to_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        to = Some(to_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid to value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let graph_type = attrs
+                .get_opt("graph_type")
+                .map(|s| parse_graph_type(s))
+                .transpose()?;
+            let title = attrs.get_opt_string("title");
+            let doc = attrs.get_opt_string("doc");
+            let show_grid = attrs.get_opt_bool("show_grid")?;
+            let num_x_grid_lines = attrs.get_opt_u32("num_x_grid_lines")?;
+            let num_y_grid_lines = attrs.get_opt_u32("num_y_grid_lines")?;
+            let num_x_labels = attrs.get_opt_u32("num_x_labels")?;
+            let num_y_labels = attrs.get_opt_u32("num_y_labels")?;
+            let x_axis_title = attrs.get_opt_string("x_axis_title");
+            let right_axis_title = attrs.get_opt_string("right_axis_title");
+            let right_axis_auto_scale = attrs.get_opt_bool("right_axis_auto_scale")?;
+            let right_axis_multi_scale = attrs.get_opt_bool("right_axis_multi_scale")?;
+            let left_axis_title = attrs.get_opt_string("left_axis_title");
+            let left_axis_auto_scale = attrs.get_opt_bool("left_axis_auto_scale")?;
+            let left_axis_multi_scale = attrs.get_opt_bool("left_axis_multi_scale")?;
+            let plot_numbers = attrs.get_opt_bool("plot_numbers")?;
+            let comparative = attrs.get_opt_bool("comparative")?;
+            let from = attrs.get_opt_f64("from")?;
+            let to = attrs.get_opt_f64("to")?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -5155,50 +3146,15 @@ fn deserialize_table_item<R: BufRead>(
 ) -> Result<TableItem, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"item" => {
-            let mut item_type: Option<TableItemType> = None;
-            let mut entity_name: Option<String> = None;
-            let mut precision: Option<f64> = None;
-            let mut delimit_000s: Option<bool> = None;
-            let mut column_width: Option<f64> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"type" => {
-                        let type_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        item_type = Some(parse_table_item_type(&type_str)?);
-                    }
-                    b"entity_name" => {
-                        entity_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"precision" => {
-                        let precision_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        precision = Some(precision_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid precision value: {}", e))
-                        })?);
-                    }
-                    b"delimit_000s" => {
-                        let delimit_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        delimit_000s = Some(match delimit_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid delimit_000s value: {}",
-                                    delimit_str
-                                )));
-                            }
-                        });
-                    }
-                    b"column_width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        column_width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid column_width value: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let item_type = attrs
+                .get_opt("type")
+                .map(|s| parse_table_item_type(s))
+                .transpose()?;
+            let entity_name = attrs.get_opt_string("entity_name");
+            let precision = attrs.get_opt_f64("precision")?;
+            let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
+            let column_width = attrs.get_opt_f64("column_width")?;
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -5235,209 +3191,94 @@ pub fn deserialize_table_object<R: BufRead>(
 ) -> Result<TableObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"table" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut title: Option<String> = None;
-            let mut doc: Option<String> = None;
-            let mut orientation: Option<TableOrientation> = None;
-            let mut column_width: Option<f64> = None;
-            let mut blank_column_width: Option<f64> = None;
-            let mut interval: Option<String> = None;
-            let mut report_balances: Option<ReportBalances> = None;
-            let mut report_flows: Option<ReportFlows> = None;
-            let mut comparative: Option<bool> = None;
-            let mut wrap_text: Option<bool> = None;
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let title = attrs.get_opt_string("title");
+            let doc = attrs.get_opt_string("doc");
+            let orientation = attrs
+                .get_opt("orientation")
+                .map(|s| parse_table_orientation(s))
+                .transpose()?;
+            let column_width = attrs.get_opt_f64("column_width")?;
+            let blank_column_width = attrs.get_opt_f64("blank_column_width")?;
+            let interval = attrs.get_opt_string("interval");
+            let report_balances = attrs
+                .get_opt("report_balances")
+                .map(|s| parse_report_balances(s))
+                .transpose()?;
+            let report_flows = attrs
+                .get_opt("report_flows")
+                .map(|s| parse_report_flows(s))
+                .transpose()?;
+            let comparative = attrs.get_opt_bool("comparative")?;
+            let wrap_text = attrs.get_opt_bool("wrap_text")?;
 
             // Header style attributes
-            let mut header_font_family: Option<String> = None;
-            let mut header_font_size: Option<f64> = None;
-            let mut header_font_weight: Option<FontWeight> = None;
-            let mut header_font_style: Option<FontStyle> = None;
-            let mut header_text_decoration: Option<TextDecoration> = None;
-            let mut header_text_align: Option<TextAlign> = None;
-            let mut header_vertical_text_align: Option<VerticalTextAlign> = None;
-            let mut header_text_background: Option<Color> = None;
-            let mut header_text_padding: Option<(
-                Option<f64>,
-                Option<f64>,
-                Option<f64>,
-                Option<f64>,
-            )> = None;
-            let mut header_font_color: Option<Color> = None;
-            let mut header_text_border_color: Option<Color> = None;
-            let mut header_text_border_width: Option<BorderWidth> = None;
-            let mut header_text_border_style: Option<BorderStyle> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"title" => {
-                        title = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"doc" => {
-                        doc = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"orientation" => {
-                        let orient_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        orientation = Some(parse_table_orientation(&orient_str)?);
-                    }
-                    b"column_width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        column_width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid column_width value: {}", e))
-                        })?);
-                    }
-                    b"blank_column_width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        blank_column_width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!(
-                                "Invalid blank_column_width value: {}",
-                                e
-                            ))
-                        })?);
-                    }
-                    b"interval" => {
-                        interval = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"report_balances" => {
-                        let balances_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        report_balances = Some(parse_report_balances(&balances_str)?);
-                    }
-                    b"report_flows" => {
-                        let flows_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        report_flows = Some(parse_report_flows(&flows_str)?);
-                    }
-                    b"comparative" => {
-                        let comp_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        comparative = Some(match comp_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid comparative value: {}",
-                                    comp_str
-                                )));
-                            }
-                        });
-                    }
-                    b"wrap_text" => {
-                        let wrap_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        wrap_text = Some(match wrap_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid wrap_text value: {}",
-                                    wrap_str
-                                )));
-                            }
-                        });
-                    }
-                    // Header style attributes
-                    b"header_font_family" => {
-                        header_font_family =
-                            Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"header_font_size" => {
-                        let size_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        // Remove "pt" suffix if present
-                        let size_str = size_str.trim_end_matches("pt");
-                        header_font_size = Some(size_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!(
-                                "Invalid header_font_size value: {}",
-                                e
-                            ))
-                        })?);
-                    }
-                    b"header_font_weight" => {
-                        let weight_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_font_weight = Some(parse_font_weight(&weight_str)?);
-                    }
-                    b"header_font_style" => {
-                        let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_font_style = Some(parse_font_style(&style_str)?);
-                    }
-                    b"header_text_decoration" => {
-                        let dec_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_text_decoration = Some(parse_text_decoration(&dec_str)?);
-                    }
-                    b"header_text_align" => {
-                        let align_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_text_align = Some(parse_text_align(&align_str)?);
-                    }
-                    b"header_vertical_text_align" => {
-                        let align_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_vertical_text_align = Some(parse_vertical_text_align(&align_str)?);
-                    }
-                    b"header_text_background" => {
-                        let bg_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_text_background = Some(parse_color(&bg_str)?);
-                    }
-                    b"header_text_padding" => {
-                        let padding_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_text_padding = Some(parse_text_padding(&padding_str)?);
-                    }
-                    b"header_font_color" => {
-                        let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_font_color = Some(parse_color(&color_str)?);
-                    }
-                    b"header_text_border_color" => {
-                        let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_text_border_color = Some(parse_color(&color_str)?);
-                    }
-                    b"header_text_border_width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_text_border_width = Some(parse_border_width(&width_str)?);
-                    }
-                    b"header_text_border_style" => {
-                        let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        header_text_border_style = Some(match style_str.as_str() {
-                            "none" => BorderStyle::None,
-                            "solid" => BorderStyle::Solid,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid header_text_border_style: {}",
-                                    style_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let header_font_family = attrs.get_opt_string("header_font_family");
+            let header_font_size = attrs
+                .get_opt("header_font_size")
+                .map(|s| {
+                    let size_str = s.trim_end_matches("pt");
+                    size_str.parse().map_err(|e| {
+                        DeserializeError::Custom(format!("Invalid header_font_size value: {}", e))
+                    })
+                })
+                .transpose()?;
+            let header_font_weight = attrs
+                .get_opt("header_font_weight")
+                .map(|s| parse_font_weight(s))
+                .transpose()?;
+            let header_font_style = attrs
+                .get_opt("header_font_style")
+                .map(|s| parse_font_style(s))
+                .transpose()?;
+            let header_text_decoration = attrs
+                .get_opt("header_text_decoration")
+                .map(|s| parse_text_decoration(s))
+                .transpose()?;
+            let header_text_align = attrs
+                .get_opt("header_text_align")
+                .map(|s| parse_text_align(s))
+                .transpose()?;
+            let header_vertical_text_align = attrs
+                .get_opt("header_vertical_text_align")
+                .map(|s| parse_vertical_text_align(s))
+                .transpose()?;
+            let header_text_background = attrs
+                .get_opt("header_text_background")
+                .map(|s| parse_color(s))
+                .transpose()?;
+            let header_text_padding = attrs
+                .get_opt("header_text_padding")
+                .map(|s| parse_text_padding(s))
+                .transpose()?;
+            let header_font_color = attrs
+                .get_opt("header_font_color")
+                .map(|s| parse_color(s))
+                .transpose()?;
+            let header_text_border_color = attrs
+                .get_opt("header_text_border_color")
+                .map(|s| parse_color(s))
+                .transpose()?;
+            let header_text_border_width = attrs
+                .get_opt("header_text_border_width")
+                .map(|s| parse_border_width(s))
+                .transpose()?;
+            let header_text_border_style = attrs
+                .get_opt("header_text_border_style")
+                .map(|s| match s {
+                    "none" => Ok(BorderStyle::None),
+                    "solid" => Ok(BorderStyle::Solid),
+                    _ => Err(DeserializeError::Custom(format!(
+                        "Invalid header_text_border_style: {}",
+                        s
+                    ))),
+                })
+                .transpose()?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -5541,53 +3382,16 @@ pub fn deserialize_text_box_object<R: BufRead>(
 ) -> Result<TextBoxObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"text_box" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut appearance: Option<TextBoxAppearance> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"appearance" => {
-                        let app_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        appearance = Some(parse_text_box_appearance(&app_str)?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let appearance = attrs
+                .get_opt("appearance")
+                .map(|s| parse_text_box_appearance(s))
+                .transpose()?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -5638,49 +3442,12 @@ fn deserialize_graphics_frame_content<R: BufRead>(
 ) -> Result<GraphicsFrameContent, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"image" => {
-            let mut size_to_parent: Option<bool> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut resource: Option<String> = None;
-            let mut data: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"size_to_parent" => {
-                        let size_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        size_to_parent = Some(match size_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid size_to_parent value: {}",
-                                    size_str
-                                )));
-                            }
-                        });
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid image width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid image height value: {}", e))
-                        })?);
-                    }
-                    b"resource" => {
-                        resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"data" => {
-                        data = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let size_to_parent = attrs.get_opt_bool("size_to_parent")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let resource = attrs.get_opt_string("resource");
+            let data = attrs.get_opt_string("data");
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -5705,45 +3472,11 @@ fn deserialize_graphics_frame_content<R: BufRead>(
             }))
         }
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"video" => {
-            let mut size_to_parent: Option<bool> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut resource: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"size_to_parent" => {
-                        let size_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        size_to_parent = Some(match size_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid size_to_parent value: {}",
-                                    size_str
-                                )));
-                            }
-                        });
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid video width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid video height value: {}", e))
-                        })?);
-                    }
-                    b"resource" => {
-                        resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let size_to_parent = attrs.get_opt_bool("size_to_parent")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let resource = attrs.get_opt_string("resource");
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -5780,72 +3513,31 @@ pub fn deserialize_graphics_frame_object<R: BufRead>(
 ) -> Result<GraphicsFrameObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"graphics_frame" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut border_color: Option<Color> = None;
-            let mut border_style: Option<BorderStyle> = None;
-            let mut border_width: Option<BorderWidth> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"border_color" => {
-                        let color_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        border_color = Some(parse_color(&color_str)?);
-                    }
-                    b"border_style" => {
-                        let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        border_style = Some(match style_str.as_str() {
-                            "none" => BorderStyle::None,
-                            "solid" => BorderStyle::Solid,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid border_style: {}",
-                                    style_str
-                                )));
-                            }
-                        });
-                    }
-                    b"border_width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        border_width = Some(parse_border_width(&width_str)?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let border_color = attrs
+                .get_opt("border_color")
+                .map(|s| parse_color(s))
+                .transpose()?;
+            let border_style = attrs
+                .get_opt("border_style")
+                .map(|s| match s {
+                    "none" => Ok(BorderStyle::None),
+                    "solid" => Ok(BorderStyle::Solid),
+                    _ => Err(DeserializeError::Custom(format!(
+                        "Invalid border_style: {}",
+                        s
+                    ))),
+                })
+                .transpose()?;
+            let border_width = attrs
+                .get_opt("border_width")
+                .map(|s| parse_border_width(s))
+                .transpose()?;
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -5971,73 +3663,20 @@ fn deserialize_link<R: BufRead>(
 ) -> Result<Link, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"link" => {
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut zoom: Option<f64> = None;
-            let mut effect: Option<LinkEffect> = None;
-            let mut to_black: Option<bool> = None;
-            let mut target_type: Option<String> = None;
-            let mut view_type: Option<String> = None;
-            let mut order: Option<String> = None;
-            let mut page: Option<String> = None;
-            let mut url: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid link x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid link y value: {}", e))
-                        })?);
-                    }
-                    b"zoom" => {
-                        let zoom_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        zoom = Some(zoom_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid link zoom value: {}", e))
-                        })?);
-                    }
-                    b"effect" => {
-                        let effect_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        effect = Some(parse_link_effect(&effect_str)?);
-                    }
-                    b"to_black" => {
-                        let black_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        to_black = Some(match black_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid to_black value: {}",
-                                    black_str
-                                )));
-                            }
-                        });
-                    }
-                    b"target" => {
-                        target_type = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"view_type" => {
-                        view_type = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"order" => {
-                        order = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"page" => {
-                        page = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"url" => {
-                        url = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let zoom = attrs.get_opt_f64("zoom")?;
+            let effect = attrs
+                .get_opt("effect")
+                .map(|s| parse_link_effect(s))
+                .transpose()?;
+            let to_black = attrs.get_opt_bool("to_black")?;
+            let target_type = attrs.get_opt_string("target");
+            let view_type = attrs.get_opt_string("view_type");
+            let order = attrs.get_opt_string("order");
+            let page = attrs.get_opt_string("page");
+            let url = attrs.get_opt_string("url");
 
             // Build LinkTarget from parsed attributes
             let target = match target_type.as_deref() {
@@ -6166,43 +3805,12 @@ fn deserialize_data_action<R: BufRead>(
 ) -> Result<DataAction, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"data_action" => {
-            let mut action: Option<String> = None;
-            let mut run_name: Option<String> = None;
-            let mut resource: Option<String> = None;
-            let mut worksheet: Option<String> = None;
-            let mut all: Option<bool> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"action" => {
-                        action = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"run_name" => {
-                        run_name = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"resource" => {
-                        resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"worksheet" => {
-                        worksheet = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"all" => {
-                        let all_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        all = Some(match all_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid all value: {}",
-                                    all_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let action = attrs.get_opt_string("action");
+            let run_name = attrs.get_opt_string("run_name");
+            let resource = attrs.get_opt_string("resource");
+            let worksheet = attrs.get_opt_string("worksheet");
+            let all = attrs.get_opt_bool("all")?;
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -6264,21 +3872,9 @@ fn deserialize_menu_action<R: BufRead>(
 ) -> Result<MenuAction, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"menu_action" => {
-            let mut action_type: Option<String> = None;
-            let mut action: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"type" => {
-                        action_type = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"action" => {
-                        action = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let action_type = attrs.get_opt_string("type");
+            let action = attrs.get_opt_string("action");
 
             // If it's a start tag, read child elements (for DataAction)
             let mut data_action: Option<DataAction> = None;
@@ -6345,49 +3941,12 @@ fn deserialize_popup_content<R: BufRead>(
             deserialize_text_box_object(reader, buf)?,
         )),
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"image" => {
-            let mut size_to_parent: Option<bool> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut resource: Option<String> = None;
-            let mut data: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"size_to_parent" => {
-                        let size_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        size_to_parent = Some(match size_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid size_to_parent value: {}",
-                                    size_str
-                                )));
-                            }
-                        });
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid image width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid image height value: {}", e))
-                        })?);
-                    }
-                    b"resource" => {
-                        resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"data" => {
-                        data = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let size_to_parent = attrs.get_opt_bool("size_to_parent")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let resource = attrs.get_opt_string("resource");
+            let data = attrs.get_opt_string("data");
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -6412,45 +3971,11 @@ fn deserialize_popup_content<R: BufRead>(
             }))
         }
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"video" => {
-            let mut size_to_parent: Option<bool> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut resource: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"size_to_parent" => {
-                        let size_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        size_to_parent = Some(match size_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid size_to_parent value: {}",
-                                    size_str
-                                )));
-                            }
-                        });
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid video width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid video height value: {}", e))
-                        })?);
-                    }
-                    b"resource" => {
-                        resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let size_to_parent = attrs.get_opt_bool("size_to_parent")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let resource = attrs.get_opt_string("resource");
 
             // If it's a start tag, read until end
             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -6487,80 +4012,23 @@ pub fn deserialize_button_object<R: BufRead>(
 ) -> Result<ButtonObject, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"button" => {
-            let mut uid: Option<i32> = None;
-            let mut x: Option<f64> = None;
-            let mut y: Option<f64> = None;
-            let mut width: Option<f64> = None;
-            let mut height: Option<f64> = None;
-            let mut appearance: Option<ButtonAppearance> = None;
-            let mut style: Option<ButtonStyle> = None;
-            let mut label: Option<String> = None;
-            let mut clicking_sound: Option<bool> = None;
-            let mut sound: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"uid" => {
-                        let uid_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        uid = Some(uid_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid uid value: {}", e))
-                        })?);
-                    }
-                    b"x" => {
-                        let x_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        x = Some(x_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid x value: {}", e))
-                        })?);
-                    }
-                    b"y" => {
-                        let y_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        y = Some(y_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid y value: {}", e))
-                        })?);
-                    }
-                    b"width" => {
-                        let width_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        width = Some(width_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid width value: {}", e))
-                        })?);
-                    }
-                    b"height" => {
-                        let height_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        height = Some(height_str.parse().map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid height value: {}", e))
-                        })?);
-                    }
-                    b"appearance" => {
-                        let app_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        appearance = Some(parse_button_appearance(&app_str)?);
-                    }
-                    b"style" => {
-                        let style_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        style = Some(parse_button_style(&style_str)?);
-                    }
-                    b"label" => {
-                        label = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    b"clicking_sound" => {
-                        let sound_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        clicking_sound = Some(match sound_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid clicking_sound value: {}",
-                                    sound_str
-                                )));
-                            }
-                        });
-                    }
-                    b"sound" => {
-                        sound = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let uid = attrs.get_opt_i32("uid")?;
+            let x = attrs.get_opt_f64("x")?;
+            let y = attrs.get_opt_f64("y")?;
+            let width = attrs.get_opt_f64("width")?;
+            let height = attrs.get_opt_f64("height")?;
+            let appearance = attrs
+                .get_opt("appearance")
+                .map(|s| parse_button_appearance(s))
+                .transpose()?;
+            let style = attrs
+                .get_opt("style")
+                .map(|s| parse_button_style(s))
+                .transpose()?;
+            let label = attrs.get_opt_string("label");
+            let clicking_sound = attrs.get_opt_bool("clicking_sound")?;
+            let sound = attrs.get_opt_string("sound");
 
             // Read common display attributes
             let display_attrs = read_display_attributes(&e, reader)?;
@@ -6576,62 +4044,12 @@ pub fn deserialize_button_object<R: BufRead>(
                 loop {
                     match reader.read_event_into(buf)? {
                         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"image" => {
-                            let mut size_to_parent: Option<bool> = None;
-                            let mut width: Option<f64> = None;
-                            let mut height: Option<f64> = None;
-                            let mut resource: Option<String> = None;
-                            let mut data: Option<String> = None;
-
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                match attr.key.as_ref() {
-                                    b"size_to_parent" => {
-                                        let size_str =
-                                            attr.decode_and_unescape_value(reader)?.to_string();
-                                        size_to_parent = Some(match size_str.as_str() {
-                                            "true" => true,
-                                            "false" => false,
-                                            _ => {
-                                                return Err(DeserializeError::Custom(format!(
-                                                    "Invalid size_to_parent value: {}",
-                                                    size_str
-                                                )));
-                                            }
-                                        });
-                                    }
-                                    b"width" => {
-                                        let width_str =
-                                            attr.decode_and_unescape_value(reader)?.to_string();
-                                        width = Some(width_str.parse().map_err(|e| {
-                                            DeserializeError::Custom(format!(
-                                                "Invalid image width value: {}",
-                                                e
-                                            ))
-                                        })?);
-                                    }
-                                    b"height" => {
-                                        let height_str =
-                                            attr.decode_and_unescape_value(reader)?.to_string();
-                                        height = Some(height_str.parse().map_err(|e| {
-                                            DeserializeError::Custom(format!(
-                                                "Invalid image height value: {}",
-                                                e
-                                            ))
-                                        })?);
-                                    }
-                                    b"resource" => {
-                                        resource = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    b"data" => {
-                                        data = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let size_to_parent = attrs.get_opt_bool("size_to_parent")?;
+                            let width = attrs.get_opt_f64("width")?;
+                            let height = attrs.get_opt_f64("height")?;
+                            let resource = attrs.get_opt_string("resource");
+                            let data = attrs.get_opt_string("data");
 
                             // If it's a start tag, read until end
                             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -6682,42 +4100,11 @@ pub fn deserialize_button_object<R: BufRead>(
                         Event::Start(e) | Event::Empty(e)
                             if e.name().as_ref() == b"switch_action" =>
                         {
-                            let mut entity_name: Option<String> = None;
-                            let mut group_name: Option<String> = None;
-                            let mut module_name: Option<String> = None;
-                            let mut value: Option<f64> = None;
-
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                match attr.key.as_ref() {
-                                    b"entity_name" => {
-                                        entity_name = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    b"group_name" => {
-                                        group_name = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    b"module_name" => {
-                                        module_name = Some(
-                                            attr.decode_and_unescape_value(reader)?.to_string(),
-                                        );
-                                    }
-                                    b"value" => {
-                                        let value_str =
-                                            attr.decode_and_unescape_value(reader)?.to_string();
-                                        value = Some(value_str.parse().map_err(|e| {
-                                            DeserializeError::Custom(format!(
-                                                "Invalid switch_action value: {}",
-                                                e
-                                            ))
-                                        })?);
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let entity_name = attrs.get_opt_string("entity_name");
+                            let group_name = attrs.get_opt_string("group_name");
+                            let module_name = attrs.get_opt_string("module_name");
+                            let value = attrs.get_opt_f64("value")?;
 
                             // If it's a start tag, read until end
                             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -6804,25 +4191,16 @@ pub fn deserialize_module<R: BufRead>(
 ) -> Result<Module, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"module" => {
-            let mut name: Option<Identifier> = None;
-            let mut resource: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        name =
-                            Some(Identifier::parse_from_attribute(&name_str).map_err(|err| {
-                                DeserializeError::Custom(format!("Invalid module name: {}", err))
-                            })?);
-                    }
-                    b"resource" => {
-                        resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s).map_err(|err| {
+                        DeserializeError::Custom(format!("Invalid module name: {}", err))
+                    })
+                })
+                .transpose()?;
+            let resource = attrs.get_opt_string("resource");
 
             let mut connections = Vec::new();
             let mut documentation: Option<Documentation> = None;
@@ -6830,22 +4208,9 @@ pub fn deserialize_module<R: BufRead>(
             loop {
                 match reader.read_event_into(buf)? {
                     Event::Start(e) if e.name().as_ref() == b"connect" => {
-                        let mut to: Option<String> = None;
-                        let mut from: Option<String> = None;
-
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"to" => {
-                                    to = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                                b"from" => {
-                                    from =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let to = attrs.get_opt_string("to");
+                        let from = attrs.get_opt_string("from");
 
                         loop {
                             match reader.read_event_into(buf)? {
@@ -6865,22 +4230,9 @@ pub fn deserialize_module<R: BufRead>(
                         }
                     }
                     Event::Empty(e) if e.name().as_ref() == b"connect" => {
-                        let mut to: Option<String> = None;
-                        let mut from: Option<String> = None;
-
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"to" => {
-                                    to = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                                b"from" => {
-                                    from =
-                                        Some(attr.decode_and_unescape_value(reader)?.to_string());
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let to = attrs.get_opt_string("to");
+                        let from = attrs.get_opt_string("from");
 
                         if let (Some(to_val), Some(from_val)) = (to, from) {
                             connections.push(ModuleConnection {
@@ -6919,25 +4271,16 @@ pub fn deserialize_module<R: BufRead>(
             })
         }
         Event::Empty(e) if e.name().as_ref() == b"module" => {
-            let mut name: Option<Identifier> = None;
-            let mut resource: Option<String> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        name =
-                            Some(Identifier::parse_from_attribute(&name_str).map_err(|err| {
-                                DeserializeError::Custom(format!("Invalid module name: {}", err))
-                            })?);
-                    }
-                    b"resource" => {
-                        resource = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s).map_err(|err| {
+                        DeserializeError::Custom(format!("Invalid module name: {}", err))
+                    })
+                })
+                .transpose()?;
+            let resource = attrs.get_opt_string("resource");
 
             buf.clear();
 
@@ -6958,6 +4301,7 @@ pub fn deserialize_module<R: BufRead>(
 ///
 /// This is called when deserialize_variables_impl has already matched the <module> start tag.
 #[cfg(feature = "submodels")]
+#[allow(dead_code)]
 pub(crate) fn deserialize_module_impl<R: BufRead>(
     reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
@@ -6972,21 +4316,9 @@ pub(crate) fn deserialize_module_impl<R: BufRead>(
         loop {
             match reader.read_event_into(buf)? {
                 Event::Start(e) if e.name().as_ref() == b"connect" => {
-                    let mut to: Option<String> = None;
-                    let mut from: Option<String> = None;
-
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        match attr.key.as_ref() {
-                            b"to" => {
-                                to = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                            }
-                            b"from" => {
-                                from = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                            }
-                            _ => {}
-                        }
-                    }
+                    let attrs = Attrs::from_start(&e, reader)?;
+                    let to = attrs.get_opt_string("to");
+                    let from = attrs.get_opt_string("from");
 
                     loop {
                         match reader.read_event_into(buf)? {
@@ -7006,21 +4338,9 @@ pub(crate) fn deserialize_module_impl<R: BufRead>(
                     }
                 }
                 Event::Empty(e) if e.name().as_ref() == b"connect" => {
-                    let mut to: Option<String> = None;
-                    let mut from: Option<String> = None;
-
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        match attr.key.as_ref() {
-                            b"to" => {
-                                to = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                            }
-                            b"from" => {
-                                from = Some(attr.decode_and_unescape_value(reader)?.to_string());
-                            }
-                            _ => {}
-                        }
-                    }
+                    let attrs = Attrs::from_start(&e, reader)?;
+                    let to = attrs.get_opt_string("to");
+                    let from = attrs.get_opt_string("from");
 
                     if let (Some(to_val), Some(from_val)) = (to, from) {
                         connections.push(ModuleConnection {
@@ -7067,17 +4387,14 @@ pub fn deserialize_group<R: BufRead>(
 ) -> Result<Group, DeserializeError> {
     match reader.read_event_into(buf)? {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"group" => {
-            let mut name: Option<Identifier> = None;
-
-            for attr in e.attributes() {
-                let attr = attr?;
-                if attr.key.as_ref() == b"name" {
-                    let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                    name = Some(Identifier::parse_from_attribute(&name_str).map_err(|e| {
-                        DeserializeError::Custom(format!("Invalid group name: {}", e))
-                    })?);
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s)
+                        .map_err(|e| DeserializeError::Custom(format!("Invalid group name: {}", e)))
+                })
+                .transpose()?;
 
             let mut doc: Option<Documentation> = None;
             let mut entities = Vec::new();
@@ -7098,43 +4415,19 @@ pub fn deserialize_group<R: BufRead>(
                             );
                         }
                         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"entity" => {
-                            let mut entity_name: Option<Identifier> = None;
-                            let mut run: Option<bool> = None;
-
-                            for attr in e.attributes() {
-                                let attr = attr?;
-                                match attr.key.as_ref() {
-                                    b"name" => {
-                                        let name_str =
-                                            attr.decode_and_unescape_value(reader)?.to_string();
-                                        entity_name = Some(
-                                            Identifier::parse_from_attribute(&name_str).map_err(
-                                                |e| {
-                                                    DeserializeError::Custom(format!(
-                                                        "Invalid entity name: {}",
-                                                        e
-                                                    ))
-                                                },
-                                            )?,
-                                        );
-                                    }
-                                    b"run" => {
-                                        let run_str =
-                                            attr.decode_and_unescape_value(reader)?.to_string();
-                                        run = Some(match run_str.as_str() {
-                                            "true" => true,
-                                            "false" => false,
-                                            _ => {
-                                                return Err(DeserializeError::Custom(format!(
-                                                    "Invalid run value: {}",
-                                                    run_str
-                                                )));
-                                            }
-                                        });
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let attrs = Attrs::from_start(&e, reader)?;
+                            let entity_name = attrs
+                                .get_opt("name")
+                                .map(|s| {
+                                    Identifier::parse_from_attribute(s).map_err(|e| {
+                                        DeserializeError::Custom(format!(
+                                            "Invalid entity name: {}",
+                                            e
+                                        ))
+                                    })
+                                })
+                                .transpose()?;
+                            let run = attrs.get_opt_bool("run")?;
 
                             // If it's a start tag, read until end
                             if !matches!(reader.read_event_into(buf)?, Event::Empty(_)) {
@@ -7176,123 +4469,6 @@ pub fn deserialize_group<R: BufRead>(
             "Expected group element".to_string(),
         )),
     }
-}
-
-/// Internal implementation of Group deserialization when start tag is already read.
-pub(crate) fn deserialize_group_impl<R: BufRead>(
-    reader: &mut Reader<R>,
-    buf: &mut Vec<u8>,
-    name: Option<Identifier>,
-    is_empty_tag: bool,
-) -> Result<Group, DeserializeError> {
-    let mut doc: Option<Documentation> = None;
-    let mut entities = Vec::new();
-
-    if !is_empty_tag {
-        loop {
-            match reader.read_event_into(buf)? {
-                Event::Start(e) if e.name().as_ref() == b"doc" => {
-                    let doc_text = read_text_content(reader, buf)?;
-                    // Determine if it's HTML or plain text
-                    doc = Some(
-                        if doc_text.trim().contains('<') && doc_text.trim().contains('>') {
-                            Documentation::Html(doc_text)
-                        } else {
-                            Documentation::PlainText(doc_text)
-                        },
-                    );
-                }
-                Event::Start(e) if e.name().as_ref() == b"entity" => {
-                    let mut entity_name: Option<Identifier> = None;
-                    let mut run: Option<bool> = None;
-
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        match attr.key.as_ref() {
-                            b"name" => {
-                                let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                                entity_name = Some(
-                                    Identifier::parse_from_attribute(&name_str).map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid entity name: {}",
-                                            err
-                                        ))
-                                    })?,
-                                );
-                            }
-                            b"run" => {
-                                let run_str = attr.decode_and_unescape_value(reader)?.to_string();
-                                run = Some(run_str == "true");
-                            }
-                            _ => {}
-                        }
-                    }
-                    buf.clear();
-
-                    // Read until end of entity
-                    loop {
-                        match reader.read_event_into(buf)? {
-                            Event::End(end) if end.name().as_ref() == b"entity" => break,
-                            Event::Eof => return Err(DeserializeError::UnexpectedEof),
-                            _ => {}
-                        }
-                        buf.clear();
-                    }
-
-                    if let Some(name) = entity_name {
-                        entities.push(GroupEntity {
-                            name,
-                            run: run.unwrap_or(false),
-                        });
-                    }
-                }
-                Event::Empty(e) if e.name().as_ref() == b"entity" => {
-                    let mut entity_name: Option<Identifier> = None;
-                    let mut run: Option<bool> = None;
-
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        match attr.key.as_ref() {
-                            b"name" => {
-                                let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                                entity_name = Some(
-                                    Identifier::parse_from_attribute(&name_str).map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid entity name: {}",
-                                            err
-                                        ))
-                                    })?,
-                                );
-                            }
-                            b"run" => {
-                                let run_str = attr.decode_and_unescape_value(reader)?.to_string();
-                                run = Some(run_str == "true");
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    if let Some(name) = entity_name {
-                        entities.push(GroupEntity {
-                            name,
-                            run: run.unwrap_or(false),
-                        });
-                    }
-                }
-                Event::End(e) if e.name().as_ref() == b"group" => break,
-                Event::Eof => return Err(DeserializeError::UnexpectedEof),
-                _ => {}
-            }
-            buf.clear();
-        }
-    }
-
-    Ok(Group {
-        name: name.ok_or_else(|| DeserializeError::MissingField("name".to_string()))?,
-        doc,
-        entities,
-        display: Vec::new(), // Display UIDs are handled separately in views
-    })
 }
 
 /// Parse ViewType from string.
@@ -7351,51 +4527,29 @@ pub fn deserialize_auxiliary<R: BufRead>(
     buf: &mut Vec<u8>,
 ) -> Result<Auxiliary, DeserializeError> {
     // Expect <aux> start tag
-    let mut name: Option<Identifier> = None;
-    let mut access: Option<crate::model::vars::AccessType> = None;
-    let mut autoexport: Option<bool> = None;
-
-    match reader.read_event_into(buf)? {
+    let (name, access, autoexport) = match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"aux" => {
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        name = Some(Identifier::parse_from_attribute(&name_str).map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid identifier: {}", e))
-                        })?);
-                    }
-                    b"access" => {
-                        let access_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        access = Some(match access_str.as_str() {
-                            "input" => crate::model::vars::AccessType::Input,
-                            "output" => crate::model::vars::AccessType::Output,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid access type: {}",
-                                    access_str
-                                )));
-                            }
-                        });
-                    }
-                    b"autoexport" => {
-                        let autoexport_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        autoexport = Some(match autoexport_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid autoexport value: {}",
-                                    autoexport_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s)
+                        .map_err(|e| DeserializeError::Custom(format!("Invalid identifier: {}", e)))
+                })
+                .transpose()?;
+            let access = attrs
+                .get_opt("access")
+                .map(|s| match s {
+                    "input" => Ok(crate::model::vars::AccessType::Input),
+                    "output" => Ok(crate::model::vars::AccessType::Output),
+                    _ => Err(DeserializeError::Custom(format!(
+                        "Invalid access type: {}",
+                        s
+                    ))),
+                })
+                .transpose()?;
+            let autoexport = attrs.get_opt_bool("autoexport")?;
+            (name, access, autoexport)
         }
         Event::Start(e) => {
             return Err(DeserializeError::UnexpectedElement {
@@ -7408,7 +4562,7 @@ pub fn deserialize_auxiliary<R: BufRead>(
                 "Expected aux start tag".to_string(),
             ));
         }
-    }
+    };
     buf.clear();
 
     let mut equation: Option<Expression> = None;
@@ -7449,7 +4603,6 @@ pub fn deserialize_auxiliary<R: BufRead>(
                     }
                     b"units" => {
                         let units_str = read_text_content(reader, buf)?;
-                        use crate::equation::parse::unit_equation;
                         let (remaining, unit_eqn) = unit_equation(&units_str).map_err(|e| {
                             DeserializeError::Custom(format!(
                                 "Failed to parse unit equation: {}",
@@ -7516,131 +4669,10 @@ pub fn deserialize_auxiliary<R: BufRead>(
         scale,
         format,
         #[cfg(feature = "arrays")]
-        dimensions: None, // TODO: Phase 3
+        dimensions: _dimensions,
         #[cfg(feature = "arrays")]
         elements,
-        event_poster: None, // TODO: Phase 3
-    })
-}
-
-/// Internal implementation of auxiliary deserialization.
-pub(crate) fn deserialize_auxiliary_impl<R: BufRead>(
-    reader: &mut Reader<R>,
-    buf: &mut Vec<u8>,
-    name: Option<Identifier>,
-    access: Option<crate::model::vars::AccessType>,
-    autoexport: Option<bool>,
-    _is_empty_tag: bool,
-) -> Result<Auxiliary, DeserializeError> {
-    let mut equation: Option<Expression> = None;
-    #[cfg(feature = "mathml")]
-    let mut mathml_equation: Option<String> = None;
-    let mut documentation: Option<Documentation> = None;
-    let mut units: Option<UnitEquation> = None;
-    let mut range: Option<DeviceRange> = None;
-    let mut scale: Option<DeviceScale> = None;
-    let mut format: Option<FormatOptions> = None;
-    let mut _event_poster: Option<EventPoster> = None;
-    #[cfg(feature = "arrays")]
-    let mut _dimensions: Option<VariableDimensions> = None;
-    #[cfg(feature = "arrays")]
-    let mut elements: Vec<ArrayElement> = Vec::new();
-
-    loop {
-        match reader.read_event_into(buf)? {
-            Event::Start(e) => {
-                match e.name().as_ref() {
-                    b"eqn" => {
-                        equation = Some(read_expression(reader, buf)?);
-                    }
-                    #[cfg(feature = "mathml")]
-                    b"mathml" => {
-                        mathml_equation = Some(read_text_content(reader, buf)?);
-                    }
-                    b"doc" => {
-                        let doc_text = read_text_content(reader, buf)?;
-                        // Determine if it's HTML or plain text
-                        documentation = Some(
-                            if doc_text.trim().contains('<') && doc_text.trim().contains('>') {
-                                Documentation::Html(doc_text)
-                            } else {
-                                Documentation::PlainText(doc_text)
-                            },
-                        );
-                    }
-                    b"units" => {
-                        let units_str = read_text_content(reader, buf)?;
-                        use crate::equation::parse::unit_equation;
-                        let (remaining, unit_eqn) = unit_equation(&units_str).map_err(|e| {
-                            DeserializeError::Custom(format!(
-                                "Failed to parse unit equation: {}",
-                                e
-                            ))
-                        })?;
-                        if !remaining.is_empty() {
-                            return Err(DeserializeError::Custom(format!(
-                                "Unexpected trailing characters after unit equation: '{}'",
-                                remaining
-                            )));
-                        }
-                        units = Some(unit_eqn);
-                    }
-                    b"range" => {
-                        range = Some(deserialize_range(reader, buf)?);
-                    }
-                    b"scale" => {
-                        scale = Some(deserialize_scale(reader, buf)?);
-                    }
-                    b"format" => {
-                        format = Some(deserialize_format(reader, buf)?);
-                    }
-                    b"event_poster" => {
-                        _event_poster = Some(deserialize_event_poster(reader, buf)?);
-                    }
-                    #[cfg(feature = "arrays")]
-                    b"dimensions" => {
-                        _dimensions = Some(deserialize_dimensions(reader, buf)?);
-                    }
-                    #[cfg(feature = "arrays")]
-                    b"element" => {
-                        let element = deserialize_array_element(reader, buf)?;
-                        elements.push(element);
-                    }
-                    _ => {
-                        // Skip unknown elements using the helper
-                        let element_name = e.name().as_ref().to_vec();
-                        skip_element(reader, buf, &element_name)?;
-                    }
-                }
-            }
-            Event::End(e) if e.name().as_ref() == b"aux" => {
-                break;
-            }
-            Event::Eof => {
-                return Err(DeserializeError::UnexpectedEof);
-            }
-            _ => {}
-        }
-        buf.clear();
-    }
-
-    Ok(Auxiliary {
-        name: name.ok_or_else(|| DeserializeError::MissingField("name".to_string()))?,
-        access,
-        autoexport,
-        documentation,
-        equation: equation.ok_or_else(|| DeserializeError::MissingField("eqn".to_string()))?,
-        #[cfg(feature = "mathml")]
-        mathml_equation,
-        units,
-        range,
-        scale,
-        format,
-        #[cfg(feature = "arrays")]
-        dimensions: None, // TODO: Phase 3
-        #[cfg(feature = "arrays")]
-        elements,
-        event_poster: None, // TODO: Phase 3
+        event_poster: _event_poster,
     })
 }
 
@@ -7652,51 +4684,29 @@ pub fn deserialize_basic_flow<R: BufRead>(
     buf: &mut Vec<u8>,
 ) -> Result<BasicFlow, DeserializeError> {
     // Expect <flow> start tag
-    let mut name: Option<Identifier> = None;
-    let mut access: Option<crate::model::vars::AccessType> = None;
-    let mut autoexport: Option<bool> = None;
-
-    match reader.read_event_into(buf)? {
+    let (name, access, autoexport) = match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"flow" => {
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        name = Some(Identifier::parse_from_attribute(&name_str).map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid identifier: {}", e))
-                        })?);
-                    }
-                    b"access" => {
-                        let access_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        access = Some(match access_str.as_str() {
-                            "input" => crate::model::vars::AccessType::Input,
-                            "output" => crate::model::vars::AccessType::Output,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid access type: {}",
-                                    access_str
-                                )));
-                            }
-                        });
-                    }
-                    b"autoexport" => {
-                        let autoexport_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        autoexport = Some(match autoexport_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid autoexport value: {}",
-                                    autoexport_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s)
+                        .map_err(|e| DeserializeError::Custom(format!("Invalid identifier: {}", e)))
+                })
+                .transpose()?;
+            let access = attrs
+                .get_opt("access")
+                .map(|s| match s {
+                    "input" => Ok(crate::model::vars::AccessType::Input),
+                    "output" => Ok(crate::model::vars::AccessType::Output),
+                    _ => Err(DeserializeError::Custom(format!(
+                        "Invalid access type: {}",
+                        s
+                    ))),
+                })
+                .transpose()?;
+            let autoexport = attrs.get_opt_bool("autoexport")?;
+            (name, access, autoexport)
         }
         Event::Start(e) => {
             return Err(DeserializeError::UnexpectedElement {
@@ -7709,7 +4719,7 @@ pub fn deserialize_basic_flow<R: BufRead>(
                 "Expected flow start tag".to_string(),
             ));
         }
-    }
+    };
     buf.clear();
     deserialize_basic_flow_impl(reader, buf, name, access, autoexport, false)
 }
@@ -7763,7 +4773,6 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
                     }
                     b"units" => {
                         let units_str = read_text_content(reader, buf)?;
-                        use crate::equation::parse::unit_equation;
                         let (remaining, unit_eqn) = unit_equation(&units_str).map_err(|e| {
                             DeserializeError::Custom(format!(
                                 "Failed to parse unit equation: {}",
@@ -7794,27 +4803,9 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
                         });
                     }
                     b"range" => {
-                        // Extract range attributes
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
                         buf.clear();
                         // Skip to end of range element
                         loop {
@@ -7833,39 +4824,11 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
                         }
                     }
                     b"scale" => {
-                        // Extract scale attributes
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        let mut auto: Option<bool> = None;
-                        let mut group: Option<u32> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                b"auto" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    auto = Some(s == "true");
-                                }
-                                b"group" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    group = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid group: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
+                        let auto = attrs.get_opt_bool("auto")?;
+                        let group = attrs.get_opt_u32("group")?;
                         buf.clear();
                         // Skip to end of scale element
                         loop {
@@ -7888,53 +4851,22 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
                         }
                     }
                     b"format" => {
-                        // Extract format attributes
-                        let mut precision: Option<f64> = None;
-                        let mut scale_by: Option<f64> = None;
-                        let mut display_as: Option<DisplayAs> = None;
-                        let mut delimit_000s: Option<bool> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"precision" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    precision = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid precision: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"scale_by" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    scale_by = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid scale_by: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"display_as" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    display_as = Some(match s.as_str() {
-                                        "number" => DisplayAs::Number,
-                                        "currency" => DisplayAs::Currency,
-                                        "percent" => DisplayAs::Percent,
-                                        _ => {
-                                            return Err(DeserializeError::Custom(format!(
-                                                "Invalid display_as: {}",
-                                                s
-                                            )));
-                                        }
-                                    });
-                                }
-                                b"delimit_000s" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    delimit_000s = Some(s == "true");
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let precision = attrs.get_opt_f64("precision")?;
+                        let scale_by = attrs.get_opt_f64("scale_by")?;
+                        let display_as = attrs
+                            .get_opt("display_as")
+                            .map(|s| match s {
+                                "number" => Ok(DisplayAs::Number),
+                                "currency" => Ok(DisplayAs::Currency),
+                                "percent" => Ok(DisplayAs::Percent),
+                                _ => Err(DeserializeError::Custom(format!(
+                                    "Invalid display_as: {}",
+                                    s
+                                ))),
+                            })
+                            .transpose()?;
+                        let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
                         buf.clear();
                         // Skip to end of format element
                         loop {
@@ -7985,27 +4917,9 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
                         non_negative = Some(None);
                     }
                     b"range" => {
-                        // Parse range from empty tag
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
                         if let (Some(min_val), Some(max_val)) = (min, max) {
                             range = Some(DeviceRange {
                                 min: min_val,
@@ -8014,33 +4928,11 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
                         }
                     }
                     b"scale" => {
-                        // Parse scale from empty tag
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        let mut auto: Option<bool> = None;
-                        let mut group: Option<u32> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"auto" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    auto = Some(s == "true");
-                                }
-                                b"group" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    group = Some(s.parse().unwrap_or(0));
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
+                        let auto = attrs.get_opt_bool("auto")?;
+                        let group = attrs.get_opt_u32("group")?;
                         if let Some(auto_val) = auto {
                             scale = Some(DeviceScale::Auto(auto_val));
                         } else if let Some(group_val) = group {
@@ -8053,38 +4945,16 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
                         }
                     }
                     b"format" => {
-                        // Parse format from empty tag
-                        let mut precision: Option<f64> = None;
-                        let mut scale_by: Option<f64> = None;
-                        let mut display_as: Option<DisplayAs> = None;
-                        let mut delimit_000s: Option<bool> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"precision" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    precision = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"scale_by" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    scale_by = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"display_as" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    display_as = match s.as_str() {
-                                        "number" => Some(DisplayAs::Number),
-                                        "currency" => Some(DisplayAs::Currency),
-                                        "percent" => Some(DisplayAs::Percent),
-                                        _ => None,
-                                    };
-                                }
-                                b"delimit_000s" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    delimit_000s = Some(s == "true");
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let precision = attrs.get_opt_f64("precision")?;
+                        let scale_by = attrs.get_opt_f64("scale_by")?;
+                        let display_as = attrs.get_opt("display_as").and_then(|s| match s {
+                            "number" => Some(DisplayAs::Number),
+                            "currency" => Some(DisplayAs::Currency),
+                            "percent" => Some(DisplayAs::Percent),
+                            _ => None,
+                        });
+                        let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
                         format = Some(FormatOptions {
                             precision,
                             scale_by,
@@ -8120,10 +4990,10 @@ pub(crate) fn deserialize_basic_flow_impl<R: BufRead>(
         scale,
         format,
         #[cfg(feature = "arrays")]
-        dimensions: None, // TODO: Phase 3
+        dimensions: _dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
         #[cfg(feature = "arrays")]
         elements,
-        event_poster: None, // TODO: Phase 3
+        event_poster: _event_poster,
     })
 }
 
@@ -8135,51 +5005,29 @@ pub fn deserialize_basic_stock<R: BufRead>(
     buf: &mut Vec<u8>,
 ) -> Result<BasicStock, DeserializeError> {
     // Expect <stock> start tag
-    let mut name: Option<Identifier> = None;
-    let mut access: Option<crate::model::vars::AccessType> = None;
-    let mut autoexport: Option<bool> = None;
-
-    match reader.read_event_into(buf)? {
+    let (name, access, autoexport) = match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"stock" => {
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        name = Some(Identifier::parse_from_attribute(&name_str).map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid identifier: {}", e))
-                        })?);
-                    }
-                    b"access" => {
-                        let access_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        access = Some(match access_str.as_str() {
-                            "input" => crate::model::vars::AccessType::Input,
-                            "output" => crate::model::vars::AccessType::Output,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid access type: {}",
-                                    access_str
-                                )));
-                            }
-                        });
-                    }
-                    b"autoexport" => {
-                        let autoexport_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        autoexport = Some(match autoexport_str.as_str() {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
-                                return Err(DeserializeError::Custom(format!(
-                                    "Invalid autoexport value: {}",
-                                    autoexport_str
-                                )));
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s)
+                        .map_err(|e| DeserializeError::Custom(format!("Invalid identifier: {}", e)))
+                })
+                .transpose()?;
+            let access = attrs
+                .get_opt("access")
+                .map(|s| match s {
+                    "input" => Ok(crate::model::vars::AccessType::Input),
+                    "output" => Ok(crate::model::vars::AccessType::Output),
+                    _ => Err(DeserializeError::Custom(format!(
+                        "Invalid access type: {}",
+                        s
+                    ))),
+                })
+                .transpose()?;
+            let autoexport = attrs.get_opt_bool("autoexport")?;
+            (name, access, autoexport)
         }
         Event::Start(e) => {
             return Err(DeserializeError::UnexpectedElement {
@@ -8192,7 +5040,7 @@ pub fn deserialize_basic_stock<R: BufRead>(
                 "Expected stock start tag".to_string(),
             ));
         }
-    }
+    };
     buf.clear();
     deserialize_basic_stock_impl(reader, buf, name, access, autoexport, false)
 }
@@ -8220,37 +5068,11 @@ fn parse_conveyor_element<R: BufRead>(
 ) -> Result<ConveyorData, DeserializeError> {
     let mut data = ConveyorData::default();
 
-    // Read attributes
-    for attr in start_event.attributes() {
-        let attr = attr?;
-        match attr.key.as_ref() {
-            b"discrete" => {
-                let value = attr.decode_and_unescape_value(reader)?.to_string();
-                data.discrete = Some(value.parse::<bool>().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid discrete value: {}", e))
-                })?);
-            }
-            b"batch_integrity" => {
-                let value = attr.decode_and_unescape_value(reader)?.to_string();
-                data.batch_integrity = Some(value.parse::<bool>().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid batch_integrity value: {}", e))
-                })?);
-            }
-            b"one_at_a_time" => {
-                let value = attr.decode_and_unescape_value(reader)?.to_string();
-                data.one_at_a_time = Some(value.parse::<bool>().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid one_at_a_time value: {}", e))
-                })?);
-            }
-            b"exponential_leak" => {
-                let value = attr.decode_and_unescape_value(reader)?.to_string();
-                data.exponential_leakage = Some(value.parse::<bool>().map_err(|e| {
-                    DeserializeError::Custom(format!("Invalid exponential_leak value: {}", e))
-                })?);
-            }
-            _ => {}
-        }
-    }
+    let attrs = Attrs::from_start(start_event, reader)?;
+    data.discrete = attrs.get_opt_bool("discrete")?;
+    data.batch_integrity = attrs.get_opt_bool("batch_integrity")?;
+    data.one_at_a_time = attrs.get_opt_bool("one_at_a_time")?;
+    data.exponential_leakage = attrs.get_opt_bool("exponential_leak")?;
 
     // Read child elements
     loop {
@@ -8374,7 +5196,6 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                     }
                     b"units" => {
                         let units_str = read_text_content(reader, buf)?;
-                        use crate::equation::parse::unit_equation;
                         let (remaining, unit_eqn) = unit_equation(&units_str).map_err(|e| {
                             DeserializeError::Custom(format!(
                                 "Failed to parse unit equation: {}",
@@ -8405,29 +5226,9 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                         });
                     }
                     b"range" => {
-                        // Extract attributes before clearing buf
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let min_str =
-                                        attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(min_str.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let max_str =
-                                        attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(max_str.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
                         buf.clear();
                         // Skip to end of range element
                         loop {
@@ -8446,39 +5247,11 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                         }
                     }
                     b"scale" => {
-                        // Extract attributes before clearing buf
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        let mut auto: Option<bool> = None;
-                        let mut group: Option<u32> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                b"auto" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    auto = Some(s == "true");
-                                }
-                                b"group" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    group = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid group: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
+                        let auto = attrs.get_opt_bool("auto")?;
+                        let group = attrs.get_opt_u32("group")?;
                         buf.clear();
                         // Skip to end of scale element
                         loop {
@@ -8501,53 +5274,22 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                         }
                     }
                     b"format" => {
-                        // Extract attributes before clearing buf
-                        let mut precision: Option<f64> = None;
-                        let mut scale_by: Option<f64> = None;
-                        let mut display_as: Option<DisplayAs> = None;
-                        let mut delimit_000s: Option<bool> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"precision" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    precision = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid precision: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"scale_by" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    scale_by = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid scale_by: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"display_as" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    display_as = Some(match s.as_str() {
-                                        "number" => DisplayAs::Number,
-                                        "currency" => DisplayAs::Currency,
-                                        "percent" => DisplayAs::Percent,
-                                        _ => {
-                                            return Err(DeserializeError::Custom(format!(
-                                                "Invalid display_as: {}",
-                                                s
-                                            )));
-                                        }
-                                    });
-                                }
-                                b"delimit_000s" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    delimit_000s = Some(s == "true");
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let precision = attrs.get_opt_f64("precision")?;
+                        let scale_by = attrs.get_opt_f64("scale_by")?;
+                        let display_as = attrs
+                            .get_opt("display_as")
+                            .map(|s| match s {
+                                "number" => Ok(DisplayAs::Number),
+                                "currency" => Ok(DisplayAs::Currency),
+                                "percent" => Ok(DisplayAs::Percent),
+                                _ => Err(DeserializeError::Custom(format!(
+                                    "Invalid display_as: {}",
+                                    s
+                                ))),
+                            })
+                            .transpose()?;
+                        let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
                         buf.clear();
                         // Skip to end of format element
                         loop {
@@ -8566,30 +5308,12 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                         });
                     }
                     b"conveyor" => {
-                        // Extract attributes first
+                        let attrs = Attrs::from_start(&e, reader)?;
                         let mut cd = ConveyorData::default();
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"discrete" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    cd.discrete = Some(s == "true");
-                                }
-                                b"batch_integrity" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    cd.batch_integrity = Some(s == "true");
-                                }
-                                b"one_at_a_time" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    cd.one_at_a_time = Some(s == "true");
-                                }
-                                b"exponential_leak" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    cd.exponential_leakage = Some(s == "true");
-                                }
-                                _ => {}
-                            }
-                        }
+                        cd.discrete = attrs.get_opt_bool("discrete")?;
+                        cd.batch_integrity = attrs.get_opt_bool("batch_integrity")?;
+                        cd.one_at_a_time = attrs.get_opt_bool("one_at_a_time")?;
+                        cd.exponential_leakage = attrs.get_opt_bool("exponential_leak")?;
                         buf.clear();
                         // Read conveyor child elements
                         loop {
@@ -8678,40 +5402,15 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                         is_queue = true;
                     }
                     b"conveyor" => {
-                        // Empty <conveyor/> tag - parse attributes
-                        conveyor_data = Some(ConveyorData::default());
-                        // Read attributes from empty conveyor tag
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"discrete" => {
-                                    let value = attr.decode_and_unescape_value(reader)?.to_string();
-                                    if let Some(ref mut cd) = conveyor_data {
-                                        cd.discrete = Some(value.parse::<bool>().unwrap_or(false));
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let mut cd = ConveyorData::default();
+                        cd.discrete = attrs.get_opt_bool("discrete")?;
+                        conveyor_data = Some(cd);
                     }
                     b"range" => {
-                        // Parse range from empty tag
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(s.parse().unwrap_or(0.0));
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
                         if let (Some(min_val), Some(max_val)) = (min, max) {
                             range = Some(DeviceRange {
                                 min: min_val,
@@ -8720,33 +5419,11 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                         }
                     }
                     b"scale" => {
-                        // Parse scale from empty tag
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        let mut auto: Option<bool> = None;
-                        let mut group: Option<u32> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"auto" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    auto = Some(s == "true");
-                                }
-                                b"group" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    group = Some(s.parse().unwrap_or(0));
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
+                        let auto = attrs.get_opt_bool("auto")?;
+                        let group = attrs.get_opt_u32("group")?;
                         if let Some(auto_val) = auto {
                             scale = Some(DeviceScale::Auto(auto_val));
                         } else if let Some(group_val) = group {
@@ -8759,38 +5436,16 @@ pub(crate) fn deserialize_stock_impl<R: BufRead>(
                         }
                     }
                     b"format" => {
-                        // Parse format from empty tag
-                        let mut precision: Option<f64> = None;
-                        let mut scale_by: Option<f64> = None;
-                        let mut display_as: Option<DisplayAs> = None;
-                        let mut delimit_000s: Option<bool> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"precision" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    precision = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"scale_by" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    scale_by = Some(s.parse().unwrap_or(0.0));
-                                }
-                                b"display_as" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    display_as = match s.as_str() {
-                                        "number" => Some(DisplayAs::Number),
-                                        "currency" => Some(DisplayAs::Currency),
-                                        "percent" => Some(DisplayAs::Percent),
-                                        _ => None,
-                                    };
-                                }
-                                b"delimit_000s" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    delimit_000s = Some(s == "true");
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let precision = attrs.get_opt_f64("precision")?;
+                        let scale_by = attrs.get_opt_f64("scale_by")?;
+                        let display_as = attrs.get_opt("display_as").and_then(|s| match s {
+                            "number" => Some(DisplayAs::Number),
+                            "currency" => Some(DisplayAs::Currency),
+                            "percent" => Some(DisplayAs::Percent),
+                            _ => None,
+                        });
+                        let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
                         format = Some(FormatOptions {
                             precision,
                             scale_by,
@@ -8920,5 +5575,3 @@ pub(crate) fn deserialize_basic_stock_impl<R: BufRead>(
         )),
     }
 }
-
-// deserialize_macro moved to deserialize_macros module

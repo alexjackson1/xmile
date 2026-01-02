@@ -5,16 +5,19 @@
 //! - Parsing common attribute types (numbers, strings, enums)
 //! - Parsing style-related enums (colors, fonts, borders, etc.)
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 use std::str::FromStr;
 
-use crate::view::style::{
-    BorderStyle, BorderWidth, Color, FontStyle, FontWeight, Padding, PredefinedColor, TextAlign,
-    TextDecoration, VerticalTextAlign,
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    view::style::{
+        BorderStyle, BorderWidth, Color, FontStyle, FontWeight, Padding, PredefinedColor,
+        TextAlign, TextDecoration, VerticalTextAlign,
+    },
+    xml::deserialize::DeserializeError,
 };
-use crate::xml::deserialize::DeserializeError;
 
 /// Helper to read text content from an element.
 pub fn read_text_content<R: BufRead>(

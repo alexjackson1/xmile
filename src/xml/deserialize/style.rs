@@ -2,20 +2,28 @@
 //!
 //! This module handles deserialization of style structures and object styles.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 
-use crate::view::style::{ObjectStyle, Style};
-use crate::xml::deserialize::DeserializeError;
-use crate::xml::deserialize::helpers::{
-    parse_border_style as deserialize_border_style, parse_border_width as deserialize_border_width,
-    parse_color as deserialize_color, parse_font_style as deserialize_font_style,
-    parse_font_weight as deserialize_font_weight, parse_padding as deserialize_padding,
-    parse_text_align as deserialize_text_align,
-    parse_text_decoration as deserialize_text_decoration,
-    parse_vertical_text_align as deserialize_vertical_text_align,
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    view::style::{ObjectStyle, Style},
+    xml::deserialize::{
+        DeserializeError,
+        helpers::{
+            parse_border_style as deserialize_border_style,
+            parse_border_width as deserialize_border_width, parse_color as deserialize_color,
+            parse_font_style as deserialize_font_style,
+            parse_font_weight as deserialize_font_weight, parse_padding as deserialize_padding,
+            parse_text_align as deserialize_text_align,
+            parse_text_decoration as deserialize_text_decoration,
+            parse_vertical_text_align as deserialize_vertical_text_align,
+        },
+    },
+    xml::quick::de::Attrs,
 };
+
 pub fn deserialize_style<R: BufRead>(
     reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
@@ -25,16 +33,9 @@ pub fn deserialize_style<R: BufRead>(
 
     match event {
         Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"style" => {
-            // Extract attributes before clearing buf
-            let mut attrs = Vec::new();
-            for attr in e.attributes() {
-                let attr = attr?;
-                let key = attr.key.as_ref().to_vec();
-                let value = attr.decode_and_unescape_value(reader)?.to_string();
-                attrs.push((key, value));
-            }
+            let attrs_obj = Attrs::from_start(&e, reader)?;
             buf.clear();
-            deserialize_style_impl(reader, buf, attrs, is_empty_tag)
+            deserialize_style_impl(reader, buf, attrs_obj.to_vec(), is_empty_tag)
         }
         _ => Err(DeserializeError::Custom(
             "Expected style element".to_string(),
@@ -136,14 +137,8 @@ pub(crate) fn deserialize_style_impl<R: BufRead>(
             match event {
                 Event::Start(e) => {
                     let element_name = e.name().as_ref().to_vec();
-                    // Extract attributes into owned data before clearing buf
-                    let mut attrs = Vec::new();
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        let key = attr.key.as_ref().to_vec();
-                        let value = attr.decode_and_unescape_value(reader)?.to_string();
-                        attrs.push((key, value));
-                    }
+                    let attrs_obj = Attrs::from_start(&e, reader)?;
+                    let attrs = attrs_obj.to_vec();
                     buf.clear(); // Clear buf before calling deserialize_object_style
                     match element_name.as_slice() {
                         b"stock" => {
@@ -253,14 +248,8 @@ pub(crate) fn deserialize_style_impl<R: BufRead>(
                 }
                 Event::Empty(e) => {
                     let element_name = e.name().as_ref().to_vec();
-                    // Extract attributes into owned data before clearing buf
-                    let mut attrs = Vec::new();
-                    for attr in e.attributes() {
-                        let attr = attr?;
-                        let key = attr.key.as_ref().to_vec();
-                        let value = attr.decode_and_unescape_value(reader)?.to_string();
-                        attrs.push((key, value));
-                    }
+                    let attrs_obj = Attrs::from_start(&e, reader)?;
+                    let attrs = attrs_obj.to_vec();
                     buf.clear(); // Clear buf before calling deserialize_object_style
                     match element_name.as_slice() {
                         b"stock" => {
@@ -629,14 +618,8 @@ pub(crate) fn deserialize_style_impl_with_first_element<R: BufRead>(
         match reader.read_event_into(buf)? {
             Event::Start(e) => {
                 let child_element_name = e.name().as_ref().to_vec();
-                // Extract attributes into owned data before clearing buf
-                let mut child_attrs = Vec::new();
-                for attr in e.attributes() {
-                    let attr = attr?;
-                    let key = attr.key.as_ref().to_vec();
-                    let value = attr.decode_and_unescape_value(reader)?.to_string();
-                    child_attrs.push((key, value));
-                }
+                let attrs_obj = Attrs::from_start(&e, reader)?;
+                let child_attrs = attrs_obj.to_vec();
                 buf.clear();
 
                 match child_element_name.as_slice() {
@@ -888,7 +871,3 @@ fn deserialize_object_style_from_attrs<R: BufRead>(
     // ObjectStyle elements are always empty tags (attributes only), so we're done
     Ok(obj_style)
 }
-
-// Helper functions for deserializing style values
-
-// Helper functions are already imported at the top of the file

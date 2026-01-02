@@ -3,24 +3,30 @@
 //! This module handles deserialization of graphical function definitions,
 //! including scales, points, and function data.
 
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::io::BufRead;
 use std::str::FromStr;
 
-use crate::Expression;
-use crate::equation::Identifier;
-use crate::equation::units::UnitEquation;
-use crate::model::object::{DeviceRange, DeviceScale, DisplayAs, Documentation, FormatOptions};
+use quick_xml::Reader;
+use quick_xml::events::Event;
+
+use crate::{
+    Expression,
+    equation::{Identifier, parse::unit_equation, units::UnitEquation},
+    model::{
+        object::{DeviceRange, DeviceScale, DisplayAs, Documentation, FormatOptions},
+        vars::gf::{
+            GraphicalFunction, GraphicalFunctionData, GraphicalFunctionPoints,
+            GraphicalFunctionScale, GraphicalFunctionType,
+        },
+    },
+    xml::{
+        deserialize::{DeserializeError, helpers::read_text_content},
+        quick::de::{Attrs, skip_element},
+    },
+};
+
 #[cfg(feature = "arrays")]
 use crate::model::vars::array::{ArrayElement, VariableDimensions};
-use crate::model::vars::gf::{
-    GraphicalFunction, GraphicalFunctionData, GraphicalFunctionPoints, GraphicalFunctionScale,
-    GraphicalFunctionType,
-};
-use crate::xml::deserialize::DeserializeError;
-use crate::xml::deserialize::helpers::read_text_content;
-use crate::xml::quick::de::skip_element;
 
 /// Deserialize a GraphicalFunction from XML.
 pub fn deserialize_graphical_function<R: BufRead>(
@@ -28,30 +34,25 @@ pub fn deserialize_graphical_function<R: BufRead>(
     buf: &mut Vec<u8>,
 ) -> Result<GraphicalFunction, DeserializeError> {
     // Expect <gf> start tag
-    let mut name: Option<Identifier> = None;
-    let mut r#type: Option<GraphicalFunctionType> = None;
-
-    match reader.read_event_into(buf)? {
+    let (name, r#type) = match reader.read_event_into(buf)? {
         Event::Start(e) if e.name().as_ref() == b"gf" => {
-            // Read attributes
-            for attr in e.attributes() {
-                let attr = attr?;
-                match attr.key.as_ref() {
-                    b"name" => {
-                        let name_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        name = Some(Identifier::parse_from_attribute(&name_str).map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid identifier: {}", e))
-                        })?);
-                    }
-                    b"type" => {
-                        let type_str = attr.decode_and_unescape_value(reader)?.to_string();
-                        r#type = Some(GraphicalFunctionType::from_str(&type_str).map_err(|e| {
-                            DeserializeError::Custom(format!("Invalid function type: {}", e))
-                        })?);
-                    }
-                    _ => {}
-                }
-            }
+            let attrs = Attrs::from_start(&e, reader)?;
+            let name = attrs
+                .get_opt("name")
+                .map(|s| {
+                    Identifier::parse_from_attribute(s)
+                        .map_err(|e| DeserializeError::Custom(format!("Invalid identifier: {}", e)))
+                })
+                .transpose()?;
+            let r#type = attrs
+                .get_opt("type")
+                .map(|s| {
+                    GraphicalFunctionType::from_str(s).map_err(|e| {
+                        DeserializeError::Custom(format!("Invalid function type: {}", e))
+                    })
+                })
+                .transpose()?;
+            (name, r#type)
         }
         Event::Start(e) => {
             return Err(DeserializeError::UnexpectedElement {
@@ -64,7 +65,7 @@ pub fn deserialize_graphical_function<R: BufRead>(
                 "Expected gf start tag".to_string(),
             ));
         }
-    }
+    };
     buf.clear();
     deserialize_graphical_function_impl(reader, buf, name, r#type)
 }
@@ -120,7 +121,6 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                     }
                     b"units" => {
                         let units_str = read_text_content(reader, buf)?;
-                        use crate::equation::parse::unit_equation;
                         let (remaining, unit_eqn) = unit_equation(&units_str).map_err(|e| {
                             DeserializeError::Custom(format!(
                                 "Failed to parse unit equation: {}",
@@ -136,27 +136,9 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         units = Some(unit_eqn);
                     }
                     b"range" => {
-                        // Extract attributes before clearing buf
-                        let mut min_val: Option<f64> = None;
-                        let mut max_val: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min_val = attrs.get_opt_f64("min")?;
+                        let max_val = attrs.get_opt_f64("max")?;
                         buf.clear();
                         // Skip to end of range element
                         loop {
@@ -172,39 +154,11 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         }
                     }
                     b"scale" => {
-                        // Extract attributes before clearing buf
-                        let mut min_val: Option<f64> = None;
-                        let mut max_val: Option<f64> = None;
-                        let mut auto: Option<bool> = None;
-                        let mut group: Option<u32> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                b"auto" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    auto = Some(s == "true");
-                                }
-                                b"group" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    group = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid group: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min_val = attrs.get_opt_f64("min")?;
+                        let max_val = attrs.get_opt_f64("max")?;
+                        let auto = attrs.get_opt_bool("auto")?;
+                        let group = attrs.get_opt_u32("group")?;
                         buf.clear();
                         // Skip to end of scale element
                         loop {
@@ -224,53 +178,22 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         }
                     }
                     b"format" => {
-                        // Extract attributes before clearing buf
-                        let mut precision: Option<f64> = None;
-                        let mut scale_by: Option<f64> = None;
-                        let mut display_as: Option<DisplayAs> = None;
-                        let mut delimit_000s: Option<bool> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"precision" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    precision = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid precision: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"scale_by" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    scale_by = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid scale_by: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"display_as" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    display_as = Some(match s.as_str() {
-                                        "number" => DisplayAs::Number,
-                                        "currency" => DisplayAs::Currency,
-                                        "percent" => DisplayAs::Percent,
-                                        _ => {
-                                            return Err(DeserializeError::Custom(format!(
-                                                "Invalid display_as: {}",
-                                                s
-                                            )));
-                                        }
-                                    });
-                                }
-                                b"delimit_000s" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    delimit_000s = Some(s == "true");
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let precision = attrs.get_opt_f64("precision")?;
+                        let scale_by = attrs.get_opt_f64("scale_by")?;
+                        let display_as = attrs
+                            .get_opt("display_as")
+                            .map(|s| match s {
+                                "number" => Ok(DisplayAs::Number),
+                                "currency" => Ok(DisplayAs::Currency),
+                                "percent" => Ok(DisplayAs::Percent),
+                                _ => Err(DeserializeError::Custom(format!(
+                                    "Invalid display_as: {}",
+                                    s
+                                ))),
+                            })
+                            .transpose()?;
+                        let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
                         buf.clear();
                         // Skip to end of format element
                         loop {
@@ -289,27 +212,9 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         });
                     }
                     b"xscale" => {
-                        // Handle xscale with content (if any) - already read start event
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(val.parse::<f64>().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(val.parse::<f64>().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
                         buf.clear();
                         // Read to end of xscale element
                         loop {
@@ -330,27 +235,9 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         });
                     }
                     b"yscale" => {
-                        // Handle yscale with content (if any) - already read start event
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(val.parse::<f64>().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(val.parse::<f64>().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_opt_f64("min")?;
+                        let max = attrs.get_opt_f64("max")?;
                         buf.clear();
                         // Read to end of yscale element
                         loop {
@@ -371,15 +258,8 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         });
                     }
                     b"ypts" => {
-                        // Extract separator from attributes
-                        let mut separator: Option<String> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            if attr.key.as_ref() == b"sep" {
-                                separator =
-                                    Some(attr.decode_and_unescape_value(reader)?.to_string());
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let separator = attrs.get_opt_string("sep");
                         // Read text content
                         let data_text = read_text_content(reader, buf)?;
                         let sep = separator.as_deref().unwrap_or(",");
@@ -395,15 +275,8 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         });
                     }
                     b"xpts" => {
-                        // Extract separator from attributes
-                        let mut separator: Option<String> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            if attr.key.as_ref() == b"sep" {
-                                separator =
-                                    Some(attr.decode_and_unescape_value(reader)?.to_string());
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let separator = attrs.get_opt_string("sep");
                         // Read text content
                         let data_text = read_text_content(reader, buf)?;
                         let sep = separator.as_deref().unwrap_or(",");
@@ -440,137 +313,31 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
             Event::Empty(e) => {
                 match e.name().as_ref() {
                     b"xscale" => {
-                        // Handle empty xscale with attributes
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(val.parse::<f64>().map_err(|parse_err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid min: {}",
-                                            parse_err
-                                        ))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(val.parse::<f64>().map_err(|parse_err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid max: {}",
-                                            parse_err
-                                        ))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
-                        x_scale = Some(GraphicalFunctionScale {
-                            min: min.ok_or_else(|| {
-                                DeserializeError::MissingField("xscale.min".to_string())
-                            })?,
-                            max: max.ok_or_else(|| {
-                                DeserializeError::MissingField("xscale.max".to_string())
-                            })?,
-                        });
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_req_f64("min")?;
+                        let max = attrs.get_req_f64("max")?;
+                        x_scale = Some(GraphicalFunctionScale { min, max });
                     }
                     b"yscale" => {
-                        // Handle empty yscale with attributes
-                        let mut min: Option<f64> = None;
-                        let mut max: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min = Some(val.parse::<f64>().map_err(|parse_err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid min: {}",
-                                            parse_err
-                                        ))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let val = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max = Some(val.parse::<f64>().map_err(|parse_err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid max: {}",
-                                            parse_err
-                                        ))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
-                        y_scale = Some(GraphicalFunctionScale {
-                            min: min.ok_or_else(|| {
-                                DeserializeError::MissingField("yscale.min".to_string())
-                            })?,
-                            max: max.ok_or_else(|| {
-                                DeserializeError::MissingField("yscale.max".to_string())
-                            })?,
-                        });
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min = attrs.get_req_f64("min")?;
+                        let max = attrs.get_req_f64("max")?;
+                        y_scale = Some(GraphicalFunctionScale { min, max });
                     }
                     b"range" => {
-                        let mut min_val: Option<f64> = None;
-                        let mut max_val: Option<f64> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min_val = attrs.get_opt_f64("min")?;
+                        let max_val = attrs.get_opt_f64("max")?;
                         if let (Some(min), Some(max)) = (min_val, max_val) {
                             range = Some(DeviceRange { min, max });
                         }
                     }
                     b"scale" => {
-                        let mut min_val: Option<f64> = None;
-                        let mut max_val: Option<f64> = None;
-                        let mut auto: Option<bool> = None;
-                        let mut group: Option<u32> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"min" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    min_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid min: {}", err))
-                                    })?);
-                                }
-                                b"max" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    max_val = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid max: {}", err))
-                                    })?);
-                                }
-                                b"auto" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    auto = Some(s == "true");
-                                }
-                                b"group" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    group = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!("Invalid group: {}", err))
-                                    })?);
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let min_val = attrs.get_opt_f64("min")?;
+                        let max_val = attrs.get_opt_f64("max")?;
+                        let auto = attrs.get_opt_bool("auto")?;
+                        let group = attrs.get_opt_u32("group")?;
                         if let Some(auto_val) = auto {
                             scale = Some(DeviceScale::Auto(auto_val));
                         } else if let Some(group_val) = group {
@@ -580,52 +347,22 @@ pub(crate) fn deserialize_graphical_function_impl<R: BufRead>(
                         }
                     }
                     b"format" => {
-                        let mut precision: Option<f64> = None;
-                        let mut scale_by: Option<f64> = None;
-                        let mut display_as: Option<DisplayAs> = None;
-                        let mut delimit_000s: Option<bool> = None;
-                        for attr in e.attributes() {
-                            let attr = attr?;
-                            match attr.key.as_ref() {
-                                b"precision" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    precision = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid precision: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"scale_by" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    scale_by = Some(s.parse().map_err(|err| {
-                                        DeserializeError::Custom(format!(
-                                            "Invalid scale_by: {}",
-                                            err
-                                        ))
-                                    })?);
-                                }
-                                b"display_as" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    display_as = Some(match s.as_str() {
-                                        "number" => DisplayAs::Number,
-                                        "currency" => DisplayAs::Currency,
-                                        "percent" => DisplayAs::Percent,
-                                        _ => {
-                                            return Err(DeserializeError::Custom(format!(
-                                                "Invalid display_as: {}",
-                                                s
-                                            )));
-                                        }
-                                    });
-                                }
-                                b"delimit_000s" => {
-                                    let s = attr.decode_and_unescape_value(reader)?.to_string();
-                                    delimit_000s = Some(s == "true");
-                                }
-                                _ => {}
-                            }
-                        }
+                        let attrs = Attrs::from_start(&e, reader)?;
+                        let precision = attrs.get_opt_f64("precision")?;
+                        let scale_by = attrs.get_opt_f64("scale_by")?;
+                        let display_as = attrs
+                            .get_opt("display_as")
+                            .map(|s| match s {
+                                "number" => Ok(DisplayAs::Number),
+                                "currency" => Ok(DisplayAs::Currency),
+                                "percent" => Ok(DisplayAs::Percent),
+                                _ => Err(DeserializeError::Custom(format!(
+                                    "Invalid display_as: {}",
+                                    s
+                                ))),
+                            })
+                            .transpose()?;
+                        let delimit_000s = attrs.get_opt_bool("delimit_000s")?;
                         format = Some(FormatOptions {
                             precision,
                             scale_by,
