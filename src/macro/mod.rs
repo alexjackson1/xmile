@@ -5,14 +5,11 @@ use std::collections::HashMap;
 
 use crate::{
     equation::{Expression, Identifier},
-    model::{
-        object::Documentation,
-        vars::Variable,
-    },
+    model::{object::Documentation, vars::Variable},
     namespace::Namespace,
     specs::SimulationSpecs,
-    view::View,
     types::{Validate, ValidationResult},
+    view::View,
 };
 
 /// Macros allow new built-in functions to be defined, which can also be used to
@@ -157,16 +154,16 @@ impl<'de> Deserialize<'de> for Macro {
         D: Deserializer<'de>,
     {
         let raw: RawMacro = Deserialize::deserialize(deserializer)?;
-        
+
         let namespace = raw.namespace.map(|ns| {
             // Parse namespace string into Vec<Namespace>
             Namespace::from_str(&ns)
         });
-        
+
         let variables = raw.variables.map(|vars| vars.variables);
-        
+
         let views = raw.views.map(|v| v.view);
-        
+
         Ok(Macro {
             name: raw.name,
             eqn: raw.eqn,
@@ -196,46 +193,51 @@ impl Serialize for Macro {
             + if self.sim_specs.is_some() { 1 } else { 0 }
             + if self.variables.is_some() { 1 } else { 0 }
             + if self.views.is_some() { 1 } else { 0 };
-        
+
         let mut state = serializer.serialize_struct("macro", field_count)?;
-        
+
         // Serialize name as attribute
         state.serialize_field("@name", &self.name.to_string())?;
-        
+
         if let Some(ref ns_vec) = self.namespace {
             if !ns_vec.is_empty() {
                 let ns_str = Namespace::as_prefix(ns_vec);
                 state.serialize_field("@namespace", &ns_str)?;
             }
         }
-        
+
         if !self.parameters.is_empty() {
             state.serialize_field("parm", &self.parameters)?;
         }
-        
+
         state.serialize_field("eqn", &self.eqn)?;
-        
+
         if let Some(ref format) = self.format {
             state.serialize_field("format", format)?;
         }
-        
+
         if let Some(ref doc) = self.doc {
             state.serialize_field("doc", doc)?;
         }
-        
+
         if let Some(ref sim_specs) = self.sim_specs {
             state.serialize_field("sim_specs", sim_specs)?;
         }
-        
+
         if let Some(ref vars) = self.variables {
             use crate::xml::schema::Variables;
-            state.serialize_field("variables", &Variables { variables: vars.clone() })?;
+            state.serialize_field(
+                "variables",
+                &Variables {
+                    variables: vars.clone(),
+                },
+            )?;
         }
-        
+
         if let Some(ref view) = self.views {
             state.serialize_field("views", &RawMacroViews { view: view.clone() })?;
         }
-        
+
         state.end()
     }
 }
@@ -329,7 +331,7 @@ impl Validate for MacroParameter {
 }
 
 /// Registry for macros that maps macro names to their definitions.
-/// 
+///
 /// This registry is used to resolve macro calls in expressions and validate
 /// that macro calls match their definitions (e.g., parameter counts).
 #[cfg(feature = "macros")]
@@ -349,13 +351,13 @@ impl MacroRegistry {
     }
 
     /// Builds a macro registry from a list of macros.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `macros` - A slice of macros to register
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new `MacroRegistry` containing all the provided macros.
     pub fn from_macros(macros: &[Macro]) -> Self {
         let mut registry = MacroRegistry::new();
@@ -366,48 +368,48 @@ impl MacroRegistry {
     }
 
     /// Registers a macro in the registry.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `macro_def` - The macro definition to register
     pub fn register(&mut self, macro_def: Macro) {
         self.macros.insert(macro_def.name.clone(), macro_def);
     }
 
     /// Looks up a macro by name.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `name` - The identifier of the macro to look up
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Some(&Macro)` if the macro is found, `None` otherwise.
     pub fn get(&self, name: &Identifier) -> Option<&Macro> {
         self.macros.get(name)
     }
 
     /// Checks if a macro with the given name exists in the registry.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `name` - The identifier to check
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `true` if the macro exists, `false` otherwise.
     pub fn contains(&self, name: &Identifier) -> bool {
         self.macros.contains_key(name)
     }
 
     /// Returns the number of parameters expected by a macro.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `name` - The identifier of the macro
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Some(usize)` if the macro exists, `None` otherwise.
     /// The count includes all parameters, including those with default values.
     pub fn parameter_count(&self, name: &Identifier) -> Option<usize> {
@@ -415,13 +417,13 @@ impl MacroRegistry {
     }
 
     /// Returns the number of required parameters (those without default values).
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `name` - The identifier of the macro
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Some(usize)` if the macro exists, `None` otherwise.
     pub fn required_parameter_count(&self, name: &Identifier) -> Option<usize> {
         self.get(name).map(|m| {

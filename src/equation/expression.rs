@@ -9,9 +9,9 @@ use crate::equation::parse::expression;
 
 #[cfg(feature = "macros")]
 use crate::r#macro::MacroRegistry;
-use crate::model::vars::gf::GraphicalFunctionRegistry;
 #[cfg(feature = "arrays")]
 use crate::model::vars::array::ArrayRegistry;
+use crate::model::vars::gf::GraphicalFunctionRegistry;
 
 use super::{Identifier, NumericConstant};
 
@@ -242,21 +242,21 @@ impl Expression {
     }
 
     /// Resolves function calls in this expression using macro, graphical function, and array registries.
-    /// 
+    ///
     /// This method updates `FunctionTarget` in function calls to distinguish between:
     /// - Built-in functions (`FunctionTarget::Function`)
     /// - Macros (`FunctionTarget::Model`)
     /// - Graphical functions (`FunctionTarget::GraphicalFunction`)
     /// - Arrays (`FunctionTarget::Array`)
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `macro_registry` - Optional registry of macros (only available when `macros` feature is enabled)
     /// * `gf_registry` - Optional registry of named graphical functions
     /// * `array_registry` - Optional registry of array variables (only available when `arrays` feature is enabled)
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new `Expression` with resolved function calls, or an error if validation fails.
     #[cfg(all(feature = "macros", feature = "arrays"))]
     pub fn resolve_function_calls(
@@ -269,7 +269,7 @@ impl Expression {
     }
 
     /// Resolves function calls in this expression using macro and graphical function registries.
-    /// 
+    ///
     /// This is the version when `macros` is enabled but `arrays` is not.
     #[cfg(all(feature = "macros", not(feature = "arrays")))]
     pub fn resolve_function_calls(
@@ -281,7 +281,7 @@ impl Expression {
     }
 
     /// Resolves function calls in this expression using graphical function and array registries.
-    /// 
+    ///
     /// This is the version when `macros` is disabled but `arrays` is enabled.
     #[cfg(all(not(feature = "macros"), feature = "arrays"))]
     pub fn resolve_function_calls(
@@ -293,7 +293,7 @@ impl Expression {
     }
 
     /// Resolves function calls in this expression using graphical function registries.
-    /// 
+    ///
     /// This is the version when both `macros` and `arrays` features are disabled.
     #[cfg(all(not(feature = "macros"), not(feature = "arrays")))]
     pub fn resolve_function_calls(
@@ -308,10 +308,8 @@ impl Expression {
         &self,
         macro_registry: Option<&MacroRegistry>,
         gf_registry: Option<&GraphicalFunctionRegistry>,
-        #[cfg(feature = "arrays")]
-        array_registry: Option<&ArrayRegistry>,
-        #[cfg(not(feature = "arrays"))]
-        _array_registry: Option<()>,
+        #[cfg(feature = "arrays")] array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))] _array_registry: Option<()>,
     ) -> Result<Expression, String> {
         match self {
             Expression::Constant(_) => Ok(self.clone()),
@@ -355,7 +353,10 @@ impl Expression {
                     #[cfg(feature = "arrays")]
                     array_registry,
                 )?;
-                Ok(Expression::Exponentiation(Box::new(resolved_lhs), Box::new(resolved_rhs)))
+                Ok(Expression::Exponentiation(
+                    Box::new(resolved_lhs),
+                    Box::new(resolved_rhs),
+                ))
             }
             Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) | Expression::Not(expr) => {
                 let resolved = expr.resolve_function_calls(
@@ -400,19 +401,45 @@ impl Expression {
                     array_registry,
                 )?;
                 Ok(match self {
-                    Expression::Multiply(_, _) => Expression::Multiply(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Divide(_, _) => Expression::Divide(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Modulo(_, _) => Expression::Modulo(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Add(_, _) => Expression::Add(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Subtract(_, _) => Expression::Subtract(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::LessThan(_, _) => Expression::LessThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::LessThanOrEq(_, _) => Expression::LessThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::GreaterThan(_, _) => Expression::GreaterThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::GreaterThanOrEq(_, _) => Expression::GreaterThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Equal(_, _) => Expression::Equal(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::NotEqual(_, _) => Expression::NotEqual(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::And(_, _) => Expression::And(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Or(_, _) => Expression::Or(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Multiply(_, _) => {
+                        Expression::Multiply(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Divide(_, _) => {
+                        Expression::Divide(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Modulo(_, _) => {
+                        Expression::Modulo(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Add(_, _) => {
+                        Expression::Add(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Subtract(_, _) => {
+                        Expression::Subtract(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::LessThan(_, _) => {
+                        Expression::LessThan(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::LessThanOrEq(_, _) => {
+                        Expression::LessThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::GreaterThan(_, _) => {
+                        Expression::GreaterThan(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::GreaterThanOrEq(_, _) => {
+                        Expression::GreaterThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Equal(_, _) => {
+                        Expression::Equal(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::NotEqual(_, _) => {
+                        Expression::NotEqual(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::And(_, _) => {
+                        Expression::And(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Or(_, _) => {
+                        Expression::Or(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
                     _ => unreachable!(),
                 })
             }
@@ -443,10 +470,11 @@ impl Expression {
                                 if resolved_params.len() != 1 {
                                     return Err(format!(
                                         "Array '{}' accessed via function call requires exactly 1 parameter (flat index), but {} were provided",
-                                        name, resolved_params.len()
+                                        name,
+                                        resolved_params.len()
                                     ));
                                 }
-                                
+
                                 return Ok(Expression::FunctionCall {
                                     target: FunctionTarget::Array(name.clone()),
                                     parameters: resolved_params,
@@ -461,8 +489,9 @@ impl Expression {
                                 // Validate parameter count
                                 let param_count = resolved_params.len();
                                 let expected_count = registry.parameter_count(name).unwrap_or(0);
-                                let required_count = registry.required_parameter_count(name).unwrap_or(0);
-                                
+                                let required_count =
+                                    registry.required_parameter_count(name).unwrap_or(0);
+
                                 if param_count < required_count {
                                     return Err(format!(
                                         "Macro '{}' requires at least {} parameters, but {} were provided",
@@ -475,7 +504,7 @@ impl Expression {
                                         name, expected_count, param_count
                                     ));
                                 }
-                                
+
                                 return Ok(Expression::FunctionCall {
                                     target: FunctionTarget::Model(name.clone()),
                                     parameters: resolved_params,
@@ -490,10 +519,11 @@ impl Expression {
                                 if resolved_params.len() != 1 {
                                     return Err(format!(
                                         "Graphical function '{}' requires exactly 1 parameter, but {} were provided",
-                                        name, resolved_params.len()
+                                        name,
+                                        resolved_params.len()
                                     ));
                                 }
-                                
+
                                 return Ok(Expression::FunctionCall {
                                     target: FunctionTarget::GraphicalFunction(name.clone()),
                                     parameters: resolved_params,
@@ -553,10 +583,8 @@ impl Expression {
     fn resolve_function_calls_impl(
         &self,
         gf_registry: Option<&GraphicalFunctionRegistry>,
-        #[cfg(feature = "arrays")]
-        array_registry: Option<&ArrayRegistry>,
-        #[cfg(not(feature = "arrays"))]
-        _array_registry: Option<()>,
+        #[cfg(feature = "arrays")] array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))] _array_registry: Option<()>,
     ) -> Result<Expression, String> {
         match self {
             Expression::Constant(_) => Ok(self.clone()),
@@ -592,7 +620,10 @@ impl Expression {
                     #[cfg(feature = "arrays")]
                     array_registry,
                 )?;
-                Ok(Expression::Exponentiation(Box::new(resolved_lhs), Box::new(resolved_rhs)))
+                Ok(Expression::Exponentiation(
+                    Box::new(resolved_lhs),
+                    Box::new(resolved_rhs),
+                ))
             }
             Expression::UnaryPlus(expr) | Expression::UnaryMinus(expr) | Expression::Not(expr) => {
                 let resolved = expr.resolve_function_calls(
@@ -631,19 +662,45 @@ impl Expression {
                     array_registry,
                 )?;
                 Ok(match self {
-                    Expression::Multiply(_, _) => Expression::Multiply(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Divide(_, _) => Expression::Divide(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Modulo(_, _) => Expression::Modulo(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Add(_, _) => Expression::Add(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Subtract(_, _) => Expression::Subtract(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::LessThan(_, _) => Expression::LessThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::LessThanOrEq(_, _) => Expression::LessThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::GreaterThan(_, _) => Expression::GreaterThan(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::GreaterThanOrEq(_, _) => Expression::GreaterThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Equal(_, _) => Expression::Equal(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::NotEqual(_, _) => Expression::NotEqual(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::And(_, _) => Expression::And(Box::new(resolved_lhs), Box::new(resolved_rhs)),
-                    Expression::Or(_, _) => Expression::Or(Box::new(resolved_lhs), Box::new(resolved_rhs)),
+                    Expression::Multiply(_, _) => {
+                        Expression::Multiply(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Divide(_, _) => {
+                        Expression::Divide(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Modulo(_, _) => {
+                        Expression::Modulo(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Add(_, _) => {
+                        Expression::Add(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Subtract(_, _) => {
+                        Expression::Subtract(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::LessThan(_, _) => {
+                        Expression::LessThan(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::LessThanOrEq(_, _) => {
+                        Expression::LessThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::GreaterThan(_, _) => {
+                        Expression::GreaterThan(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::GreaterThanOrEq(_, _) => {
+                        Expression::GreaterThanOrEq(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Equal(_, _) => {
+                        Expression::Equal(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::NotEqual(_, _) => {
+                        Expression::NotEqual(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::And(_, _) => {
+                        Expression::And(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
+                    Expression::Or(_, _) => {
+                        Expression::Or(Box::new(resolved_lhs), Box::new(resolved_rhs))
+                    }
                     _ => unreachable!(),
                 })
             }
@@ -670,10 +727,11 @@ impl Expression {
                                 if resolved_params.len() != 1 {
                                     return Err(format!(
                                         "Array '{}' accessed via function call requires exactly 1 parameter (flat index), but {} were provided",
-                                        name, resolved_params.len()
+                                        name,
+                                        resolved_params.len()
                                     ));
                                 }
-                                
+
                                 return Ok(Expression::FunctionCall {
                                     target: FunctionTarget::Array(name.clone()),
                                     parameters: resolved_params,
@@ -687,10 +745,11 @@ impl Expression {
                                 if resolved_params.len() != 1 {
                                     return Err(format!(
                                         "Graphical function '{}' requires exactly 1 parameter, but {} were provided",
-                                        name, resolved_params.len()
+                                        name,
+                                        resolved_params.len()
                                     ));
                                 }
-                                
+
                                 return Ok(Expression::FunctionCall {
                                     target: FunctionTarget::GraphicalFunction(name.clone()),
                                     parameters: resolved_params,
@@ -739,18 +798,18 @@ impl Expression {
     }
 
     /// Validates that all function calls are properly resolved.
-    /// 
+    ///
     /// After expression resolution, any `FunctionTarget::Function` call that matches
     /// a name in the provided registries indicates a resolution failure.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `macro_registry` - Optional registry of macros (only available when `macros` feature is enabled)
     /// * `gf_registry` - Registry of named graphical functions
     /// * `array_registry` - Optional registry of array variables (only available when `arrays` feature is enabled)
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A vector of error messages describing any unresolved function calls, or an empty vector if all are resolved.
     #[cfg(all(feature = "macros", feature = "arrays"))]
     pub fn validate_resolved(
@@ -765,7 +824,7 @@ impl Expression {
     }
 
     /// Validates that all function calls are properly resolved.
-    /// 
+    ///
     /// This is the version when `macros` is enabled but `arrays` is not.
     #[cfg(all(feature = "macros", not(feature = "arrays")))]
     pub fn validate_resolved(
@@ -779,7 +838,7 @@ impl Expression {
     }
 
     /// Validates that all function calls are properly resolved.
-    /// 
+    ///
     /// This is the version when `macros` is disabled but `arrays` is enabled.
     #[cfg(all(not(feature = "macros"), feature = "arrays"))]
     pub fn validate_resolved(
@@ -793,7 +852,7 @@ impl Expression {
     }
 
     /// Validates that all function calls are properly resolved.
-    /// 
+    ///
     /// This is the version when both `macros` and `arrays` features are disabled.
     #[cfg(all(not(feature = "macros"), not(feature = "arrays")))]
     pub fn validate_resolved(
@@ -810,10 +869,8 @@ impl Expression {
         &self,
         macro_registry: Option<&MacroRegistry>,
         gf_registry: Option<&GraphicalFunctionRegistry>,
-        #[cfg(feature = "arrays")]
-        array_registry: Option<&ArrayRegistry>,
-        #[cfg(not(feature = "arrays"))]
-        _array_registry: Option<()>,
+        #[cfg(feature = "arrays")] array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))] _array_registry: Option<()>,
         errors: &mut Vec<String>,
     ) {
         match self {
@@ -825,6 +882,8 @@ impl Expression {
                         gf_registry,
                         #[cfg(feature = "arrays")]
                         array_registry,
+                        #[cfg(not(feature = "arrays"))]
+                        None,
                         errors,
                     );
                 }
@@ -836,6 +895,8 @@ impl Expression {
                         gf_registry,
                         #[cfg(feature = "arrays")]
                         array_registry,
+                        #[cfg(not(feature = "arrays"))]
+                        None,
                         errors,
                     );
                 }
@@ -852,7 +913,7 @@ impl Expression {
                                 return; // Don't check other registries if it's a macro
                             }
                         }
-                        
+
                         // Check if this should have been resolved to a graphical function
                         if let Some(registry) = gf_registry {
                             if registry.contains(name) {
@@ -863,7 +924,7 @@ impl Expression {
                                 return; // Don't check array registry if it's a GF
                             }
                         }
-                        
+
                         // Check if this should have been resolved to an array
                         #[cfg(feature = "arrays")]
                         if let Some(registry) = array_registry {
@@ -887,6 +948,8 @@ impl Expression {
                     gf_registry,
                     #[cfg(feature = "arrays")]
                     array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
                     errors,
                 );
             }
@@ -908,6 +971,8 @@ impl Expression {
                     gf_registry,
                     #[cfg(feature = "arrays")]
                     array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
                     errors,
                 );
                 rhs.validate_resolved_impl(
@@ -915,6 +980,8 @@ impl Expression {
                     gf_registry,
                     #[cfg(feature = "arrays")]
                     array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
                     errors,
                 );
             }
@@ -928,6 +995,8 @@ impl Expression {
                     gf_registry,
                     #[cfg(feature = "arrays")]
                     array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
                     errors,
                 );
                 then_branch.validate_resolved_impl(
@@ -935,6 +1004,8 @@ impl Expression {
                     gf_registry,
                     #[cfg(feature = "arrays")]
                     array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
                     errors,
                 );
                 else_branch.validate_resolved_impl(
@@ -942,6 +1013,8 @@ impl Expression {
                     gf_registry,
                     #[cfg(feature = "arrays")]
                     array_registry,
+                    #[cfg(not(feature = "arrays"))]
+                    None,
                     errors,
                 );
             }
@@ -953,10 +1026,8 @@ impl Expression {
         &self,
         _macro_registry: Option<()>,
         gf_registry: Option<&GraphicalFunctionRegistry>,
-        #[cfg(feature = "arrays")]
-        array_registry: Option<&ArrayRegistry>,
-        #[cfg(not(feature = "arrays"))]
-        _array_registry: Option<()>,
+        #[cfg(feature = "arrays")] array_registry: Option<&ArrayRegistry>,
+        #[cfg(not(feature = "arrays"))] _array_registry: Option<()>,
         errors: &mut Vec<String>,
     ) {
         match self {
@@ -999,7 +1070,7 @@ impl Expression {
                                 return; // Don't check array registry if it's a GF
                             }
                         }
-                        
+
                         // Check if this should have been resolved to an array
                         #[cfg(feature = "arrays")]
                         if let Some(registry) = array_registry {
@@ -1105,7 +1176,7 @@ impl fmt::Display for Expression {
                 // For serialization, use raw form to preserve quotes if originally quoted
                 // For display, we could use normalized, but for XML serialization we need raw
                 let id_str = id.raw();
-                
+
                 if params.is_empty() {
                     return write!(f, "{}", id_str);
                 }

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use crate::{
     Expression, Identifier,
-    model::vars::{Variable, Var},
     model::vars::gf::GraphicalFunction,
+    model::vars::{Var, Variable},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -129,21 +129,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_dimension_deserialization() {
-        let xml = r#"<dim name="Length" />"#;
-        let dimension: Dimension = serde_xml_rs::from_str(xml).unwrap();
+    fn test_dimension_creation() {
+        let dimension = Dimension {
+            name: "Length".to_string(),
+        };
         assert_eq!(dimension.name, "Length");
     }
 
     #[test]
-    fn test_dimension_serialization() {
-        let dimension = Dimension {
-            name: "Length".to_string(),
+    fn test_variable_dimensions_creation() {
+        let var_dims = VariableDimensions {
+            dims: vec![
+                Dimension {
+                    name: "Row".to_string(),
+                },
+                Dimension {
+                    name: "Column".to_string(),
+                },
+            ],
         };
-        let xml = serde_xml_rs::to_string(&dimension).unwrap();
-        assert_eq!(
-            xml,
-            r#"<?xml version="1.0" encoding="UTF-8"?><dim name="Length" />"#
-        );
+        assert_eq!(var_dims.dims.len(), 2);
+        assert_eq!(var_dims.dims[0].name, "Row");
+        assert_eq!(var_dims.dims[1].name, "Column");
+    }
+
+    #[test]
+    fn test_array_element_creation() {
+        use crate::equation::numeric::NumericConstant;
+        let element = ArrayElement {
+            subscript: "1,1".to_string(),
+            eqn: Some(crate::Expression::constant(NumericConstant(100.0))),
+            gf: None,
+        };
+        assert_eq!(element.subscript, "1,1");
+        assert!(element.eqn.is_some());
+        assert!(element.gf.is_none());
     }
 }

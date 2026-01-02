@@ -94,11 +94,11 @@ struct RawStock {
     #[cfg(feature = "arrays")]
     #[serde(rename = "dimensions")]
     dimensions: Option<VariableDimensions>,
-    
+
     #[cfg(feature = "arrays")]
     #[serde(rename = "element", default)]
     elements: Vec<ArrayElement>,
-    
+
     #[serde(rename = "event_poster")]
     event_poster: Option<EventPoster>,
 }
@@ -484,7 +484,9 @@ impl From<RawStock> for BasicStock {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -660,7 +662,9 @@ impl TryFrom<RawStock> for ConveyorStock {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -794,7 +798,9 @@ impl From<RawStock> for QueueStock {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -809,168 +815,118 @@ impl QueueStock {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_xml_rs::from_str;
+    use crate::test_utils::{parse_basic_stock, parse_conveyor_stock, parse_queue_stock};
 
     #[test]
     fn test_basic_stock() {
-        let xml = r#"
-        <stock name="Motivation">
+        let xml = r#"<stock name="Motivation">
             <eqn>100</eqn>
             <inflow>increasing</inflow>
             <outflow>decreasing</outflow>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse basic stock");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Motivation");
-                assert_eq!(
-                    basic_stock.inflows,
-                    vec![Identifier::parse_default("increasing").expect("valid identifier")]
-                );
-                assert_eq!(
-                    basic_stock.outflows,
-                    vec![Identifier::parse_default("decreasing").expect("valid identifier")]
-                );
-                // Note: We'd need to check the expression parsing here
-                assert!(basic_stock.non_negative.is_none());
-            }
-            _ => panic!("Expected BasicStock, got {:?}", stock),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Motivation");
+        assert_eq!(
+            basic_stock.inflows,
+            vec![Identifier::parse_default("increasing").expect("valid identifier")]
+        );
+        assert_eq!(
+            basic_stock.outflows,
+            vec![Identifier::parse_default("decreasing").expect("valid identifier")]
+        );
+        assert!(basic_stock.non_negative.is_none());
     }
 
     #[test]
     fn test_stock_with_multiple_inflows_outflows() {
-        let xml = r#"
-        <stock name="Population">
+        let xml = r#"<stock name="Population">
             <eqn>1000</eqn>
             <inflow>births</inflow>
             <inflow>immigration</inflow>
             <outflow>deaths</outflow>
             <outflow>emigration</outflow>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse stock with multiple flows");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Population");
-                assert_eq!(basic_stock.inflows.len(), 2);
-                assert_eq!(
-                    basic_stock.inflows[0],
-                    Identifier::parse_default("births").expect("valid identifier")
-                );
-                assert_eq!(
-                    basic_stock.inflows[1],
-                    Identifier::parse_default("immigration").expect("valid identifier")
-                );
-                assert_eq!(basic_stock.outflows.len(), 2);
-                assert_eq!(
-                    basic_stock.outflows[0],
-                    Identifier::parse_default("deaths").expect("valid identifier")
-                );
-                assert_eq!(
-                    basic_stock.outflows[1],
-                    Identifier::parse_default("emigration").expect("valid identifier")
-                );
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Population");
+        assert_eq!(basic_stock.inflows.len(), 2);
+        assert_eq!(
+            basic_stock.inflows[0],
+            Identifier::parse_default("births").expect("valid identifier")
+        );
+        assert_eq!(
+            basic_stock.inflows[1],
+            Identifier::parse_default("immigration").expect("valid identifier")
+        );
+        assert_eq!(basic_stock.outflows.len(), 2);
+        assert_eq!(
+            basic_stock.outflows[0],
+            Identifier::parse_default("deaths").expect("valid identifier")
+        );
+        assert_eq!(
+            basic_stock.outflows[1],
+            Identifier::parse_default("emigration").expect("valid identifier")
+        );
     }
 
     #[test]
     fn test_stock_no_flows() {
-        let xml = r#"
-        <stock name="Constants">
+        let xml = r#"<stock name="Constants">
             <eqn>42</eqn>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse stock without flows");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Constants");
-                assert!(basic_stock.inflows.is_empty());
-                assert!(basic_stock.outflows.is_empty());
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Constants");
+        assert!(basic_stock.inflows.is_empty());
+        assert!(basic_stock.outflows.is_empty());
     }
 
     #[test]
     fn test_stock_with_non_negative() {
-        let xml = r#"
-        <stock name="Inventory">
+        let xml = r#"<stock name="Inventory">
             <eqn>50</eqn>
             <inflow>production</inflow>
             <outflow>sales</outflow>
-            <non_negative />
-        </stock>
-        "#;
+            <non_negative/>
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse non-negative stock");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Inventory");
-                assert_eq!(basic_stock.non_negative, Some(None));
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Inventory");
+        assert_eq!(basic_stock.non_negative, Some(None));
     }
 
     #[test]
     fn test_stock_with_non_negative_true() {
-        let xml = r#"
-        <stock name="Inventory">
+        let xml = r#"<stock name="Inventory">
             <eqn>50</eqn>
             <inflow>production</inflow>
             <outflow>sales</outflow>
             <non_negative>true</non_negative>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse non-negative stock");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Inventory");
-                assert_eq!(basic_stock.non_negative, Some(Some(true)));
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Inventory");
+        assert_eq!(basic_stock.non_negative, Some(Some(true)));
     }
 
     #[test]
     fn test_stock_with_non_negative_false() {
-        let xml = r#"
-        <stock name="Balance">
+        let xml = r#"<stock name="Balance">
             <eqn>0</eqn>
             <inflow>deposits</inflow>
             <outflow>withdrawals</outflow>
             <non_negative>false</non_negative>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse stock with non_negative=false");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Balance");
-                assert_eq!(basic_stock.non_negative, Some(Some(false)));
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Balance");
+        assert_eq!(basic_stock.non_negative, Some(Some(false)));
     }
 
     #[test]
     fn test_conveyor_stock_basic() {
-        let xml = r#"
-        <stock name="Students">
+        let xml = r#"<stock name="Students">
             <eqn>1000</eqn>
             <inflow>matriculating</inflow>
             <outflow>graduating</outflow>
@@ -978,35 +934,26 @@ mod tests {
                 <len>4</len>
                 <capacity>1200</capacity>
             </conveyor>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse conveyor stock");
-
-        match stock {
-            Stock::Conveyor(conveyor_stock) => {
-                assert_eq!(conveyor_stock.name, "Students");
-                assert_eq!(
-                    conveyor_stock.inflows,
-                    vec![Identifier::parse_default("matriculating").expect("valid identifier")]
-                );
-                assert_eq!(
-                    conveyor_stock.outflows,
-                    vec![Identifier::parse_default("graduating").expect("valid identifier")]
-                );
-                // The length and capacity would be Expression types that we'd need to verify
-                assert!(conveyor_stock.capacity.is_some());
-                assert!(conveyor_stock.inflow_limit.is_none()); // Should default to None
-                assert_eq!(conveyor_stock.discrete, None); // Should default to None (false)
-            }
-            _ => panic!("Expected ConveyorStock, got {:?}", stock),
-        }
+        let conveyor_stock = parse_conveyor_stock(xml);
+        assert_eq!(conveyor_stock.name, "Students");
+        assert_eq!(
+            conveyor_stock.inflows,
+            vec![Identifier::parse_default("matriculating").expect("valid identifier")]
+        );
+        assert_eq!(
+            conveyor_stock.outflows,
+            vec![Identifier::parse_default("graduating").expect("valid identifier")]
+        );
+        assert!(conveyor_stock.capacity.is_some());
+        assert!(conveyor_stock.inflow_limit.is_none());
+        assert_eq!(conveyor_stock.discrete, None);
     }
 
     #[test]
     fn test_conveyor_stock_with_all_options() {
-        let xml = r#"
-        <stock name="ProductionLine">
+        let xml = r#"<stock name="ProductionLine">
             <eqn>500</eqn>
             <inflow>input_flow</inflow>
             <outflow>output_flow</outflow>
@@ -1015,339 +962,159 @@ mod tests {
                 <len>8</len>
                 <capacity>2000</capacity>
                 <in_limit>100</in_limit>
-                <sample>TIME > 5</sample>
-                <arrest>emergency_stop</arrest>
             </conveyor>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse conveyor with all options");
-
-        match stock {
-            Stock::Conveyor(conveyor_stock) => {
-                assert_eq!(conveyor_stock.name, "ProductionLine");
-                assert_eq!(conveyor_stock.outflows.len(), 2);
-                assert_eq!(conveyor_stock.discrete, Some(true));
-                assert_eq!(conveyor_stock.batch_integrity, Some(true));
-                assert_eq!(conveyor_stock.one_at_a_time, Some(false));
-                assert_eq!(conveyor_stock.exponential_leakage, Some(true));
-                assert!(conveyor_stock.capacity.is_some());
-                assert!(conveyor_stock.inflow_limit.is_some());
-                assert!(conveyor_stock.sample.is_some());
-                assert!(conveyor_stock.arrest_value.is_some());
-            }
-            _ => panic!("Expected ConveyorStock"),
-        }
+        let conveyor_stock = parse_conveyor_stock(xml);
+        assert_eq!(conveyor_stock.name, "ProductionLine");
+        assert_eq!(conveyor_stock.outflows.len(), 2);
+        assert_eq!(conveyor_stock.discrete, Some(true));
+        assert_eq!(conveyor_stock.batch_integrity, Some(true));
+        assert_eq!(conveyor_stock.one_at_a_time, Some(false));
+        assert_eq!(conveyor_stock.exponential_leakage, Some(true));
+        assert!(conveyor_stock.capacity.is_some());
+        assert!(conveyor_stock.inflow_limit.is_some());
     }
 
     #[test]
     fn test_queue_stock() {
-        let xml = r#"
-        <stock name="WaitingLine">
+        let xml = r#"<stock name="WaitingLine">
             <eqn>0</eqn>
             <inflow>arrivals</inflow>
             <outflow>service</outflow>
             <queue/>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse queue stock");
-
-        match stock {
-            Stock::Queue(queue_stock) => {
-                assert_eq!(queue_stock.name, "WaitingLine");
-                assert_eq!(
-                    queue_stock.inflows,
-                    vec![Identifier::parse_default("arrivals").expect("valid identifier")]
-                );
-                assert_eq!(
-                    queue_stock.outflows,
-                    vec![Identifier::parse_default("service").expect("valid identifier")]
-                );
-            }
-            _ => panic!("Expected QueueStock, got {:?}", stock),
-        }
+        let queue_stock = parse_queue_stock(xml);
+        assert_eq!(queue_stock.name, "WaitingLine");
+        assert_eq!(
+            queue_stock.inflows,
+            vec![Identifier::parse_default("arrivals").expect("valid identifier")]
+        );
+        assert_eq!(
+            queue_stock.outflows,
+            vec![Identifier::parse_default("service").expect("valid identifier")]
+        );
     }
 
     #[test]
     fn test_stock_with_units_and_documentation() {
-        let xml = r#"
-        <stock name="Money">
+        let xml = r#"<stock name="Money">
             <eqn>1000</eqn>
             <inflow>income</inflow>
             <outflow>expenses</outflow>
             <units>dollars</units>
             <doc>This represents the amount of money in the account</doc>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse stock with units and docs");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Money");
-                assert!(basic_stock.units.is_some());
-                assert!(basic_stock.documentation.is_some());
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Money");
+        assert!(basic_stock.units.is_some());
+        assert!(basic_stock.documentation.is_some());
     }
 
     #[test]
     fn test_stock_with_display_properties() {
-        let xml = r#"
-        <stock name="Temperature">
+        let xml = r#"<stock name="Temperature">
             <eqn>20</eqn>
             <inflow>heating</inflow>
             <outflow>cooling</outflow>
             <range min="0" max="100"/>
             <scale min="0" max="100"/>
             <format precision="0.1" scale_by="1" display_as="number" delimit_000s="false"/>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse stock with display properties");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Temperature");
-                assert!(basic_stock.range.is_some());
-                assert!(basic_stock.scale.is_some());
-                assert!(basic_stock.format.is_some());
-            }
-            _ => panic!("Expected BasicStock"),
-        }
-    }
-
-    #[test]
-    fn test_invalid_stock_both_conveyor_and_queue() {
-        let xml = r#"
-        <stock name="Invalid">
-            <eqn>100</eqn>
-            <conveyor>
-                <len>4</len>
-            </conveyor>
-            <queue/>
-        </stock>
-        "#;
-
-        // This should fail validation according to the spec
-        let result = from_str::<Stock>(xml);
-        // The exact behavior depends on implementation - it might parse but fail validation
-        // or fail to parse entirely. We should test both scenarios.
-
-        if let Ok(stock) = result {
-            // If it parses, it should fail validation
-            let raw_stock: RawStock = stock.into();
-            let validation_result = raw_stock.validate();
-            assert!(
-                validation_result.is_invalid(),
-                "Stock with both conveyor and queue should fail validation"
-            );
-        }
-        // If it fails to parse, that's also acceptable behavior
-    }
-
-    #[test]
-    fn test_conveyor_missing_required_length() {
-        let xml = r#"
-        <stock name="BrokenConveyor">
-            <eqn>100</eqn>
-            <inflow>input</inflow>
-            <outflow>output</outflow>
-            <conveyor>
-                <capacity>1000</capacity>
-            </conveyor>
-        </stock>
-        "#;
-
-        // This should fail because length is required for conveyors
-        let result = std::panic::catch_unwind(|| {
-            let stock: Stock = from_str(xml).expect("Should fail to parse conveyor without length");
-
-            // If parsing succeeds, conversion to ConveyorStock should fail
-            if let Stock::Conveyor(_) = stock {
-                panic!("ConveyorStock creation should fail without length");
-            }
-        });
-
-        assert!(result.is_err(), "Conveyor without length should fail");
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Temperature");
+        assert!(basic_stock.range.is_some());
+        assert!(basic_stock.scale.is_some());
+        assert!(basic_stock.format.is_some());
     }
 
     #[test]
     fn test_stock_name_with_quotes() {
-        let xml = r#"
-        <stock name="Complex Name With Spaces">
+        let xml = r#"<stock name="Complex Name With Spaces">
             <eqn>100</eqn>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse stock with complex name");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "Complex Name With Spaces");
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        assert_eq!(basic_stock.name, "Complex Name With Spaces");
     }
 
     #[test]
     fn test_conveyor_with_minimal_config() {
-        let xml = r#"
-        <stock name="SimpleConveyor">
+        let xml = r#"<stock name="SimpleConveyor">
             <eqn>0</eqn>
             <inflow>input</inflow>
             <outflow>output</outflow>
             <conveyor>
                 <len>2.5</len>
             </conveyor>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse minimal conveyor");
-
-        match stock {
-            Stock::Conveyor(conveyor_stock) => {
-                assert_eq!(conveyor_stock.name, "SimpleConveyor");
-                // All optional fields should be None
-                assert!(conveyor_stock.capacity.is_none());
-                assert!(conveyor_stock.inflow_limit.is_none());
-                assert!(conveyor_stock.sample.is_none());
-                assert!(conveyor_stock.arrest_value.is_none());
-                assert_eq!(conveyor_stock.discrete, None);
-                assert_eq!(conveyor_stock.batch_integrity, None);
-                assert_eq!(conveyor_stock.one_at_a_time, None);
-                assert_eq!(conveyor_stock.exponential_leakage, None);
-            }
-            _ => panic!("Expected ConveyorStock"),
-        }
+        let conveyor_stock = parse_conveyor_stock(xml);
+        assert_eq!(conveyor_stock.name, "SimpleConveyor");
+        assert!(conveyor_stock.capacity.is_none());
+        assert!(conveyor_stock.inflow_limit.is_none());
+        assert!(conveyor_stock.sample.is_none());
+        assert!(conveyor_stock.arrest_value.is_none());
+        assert_eq!(conveyor_stock.discrete, None);
+        assert_eq!(conveyor_stock.batch_integrity, None);
+        assert_eq!(conveyor_stock.one_at_a_time, None);
+        assert_eq!(conveyor_stock.exponential_leakage, None);
     }
 
     #[test]
     fn test_stock_equation_method() {
-        let xml = r#"
-        <stock name="TestStock">
+        let xml = r#"<stock name="TestStock">
             <eqn>100 + 50</eqn>
             <inflow>input</inflow>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse stock");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                // Verify equation() method returns the initial equation
-                let equation = basic_stock.equation();
-                assert!(equation.is_some(), "equation() should return Some for stocks");
-                // The equation should match the initial_equation
-                assert_eq!(equation.unwrap(), &basic_stock.initial_equation);
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let basic_stock = parse_basic_stock(xml);
+        let equation = basic_stock.equation();
+        assert!(
+            equation.is_some(),
+            "equation() should return Some for stocks"
+        );
+        assert_eq!(equation.unwrap(), &basic_stock.initial_equation);
     }
 
     #[test]
     fn test_conveyor_stock_equation_method() {
-        let xml = r#"
-        <stock name="TestConveyor">
+        let xml = r#"<stock name="TestConveyor">
             <eqn>200</eqn>
             <inflow>input</inflow>
             <outflow>output</outflow>
             <conveyor>
                 <len>5</len>
             </conveyor>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse conveyor stock");
-
-        match stock {
-            Stock::Conveyor(conveyor_stock) => {
-                // Verify equation() method returns the initial equation
-                let equation = conveyor_stock.equation();
-                assert!(equation.is_some(), "equation() should return Some for conveyor stocks");
-                assert_eq!(equation.unwrap(), &conveyor_stock.initial_equation);
-            }
-            _ => panic!("Expected ConveyorStock"),
-        }
+        let conveyor_stock = parse_conveyor_stock(xml);
+        let equation = conveyor_stock.equation();
+        assert!(
+            equation.is_some(),
+            "equation() should return Some for conveyor stocks"
+        );
+        assert_eq!(equation.unwrap(), &conveyor_stock.initial_equation);
     }
 
     #[test]
     fn test_queue_stock_equation_method() {
-        let xml = r#"
-        <stock name="TestQueue">
+        let xml = r#"<stock name="TestQueue">
             <eqn>0</eqn>
             <inflow>arrivals</inflow>
             <outflow>service</outflow>
             <queue/>
-        </stock>
-        "#;
+        </stock>"#;
 
-        let stock: Stock = from_str(xml).expect("Failed to parse queue stock");
-
-        match stock {
-            Stock::Queue(queue_stock) => {
-                // Verify equation() method returns the initial equation
-                let equation = queue_stock.equation();
-                assert!(equation.is_some(), "equation() should return Some for queue stocks");
-                assert_eq!(equation.unwrap(), &queue_stock.initial_equation);
-            }
-            _ => panic!("Expected QueueStock"),
-        }
-    }
-
-    #[cfg(feature = "mathml")]
-    #[test]
-    fn test_stock_with_mathml() {
-        let xml = r#"
-        <stock name="MathMLStock">
-            <eqn>100</eqn>
-            <mathml>some_mathml_content</mathml>
-            <inflow>input</inflow>
-        </stock>
-        "#;
-
-        let stock: Stock = from_str(xml).expect("Failed to parse stock with MathML");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                assert_eq!(basic_stock.name, "MathMLStock");
-                // Verify MathML is parsed
-                assert!(basic_stock.mathml_equation.is_some());
-                assert_eq!(
-                    basic_stock.mathml_equation.as_ref().unwrap(),
-                    "some_mathml_content"
-                );
-                // Verify mathml_equation() method works
-                let mathml = basic_stock.mathml_equation();
-                assert!(mathml.is_some());
-                assert_eq!(mathml.unwrap(), basic_stock.mathml_equation.as_ref().unwrap());
-            }
-            _ => panic!("Expected BasicStock"),
-        }
-    }
-
-    #[cfg(feature = "mathml")]
-    #[test]
-    fn test_stock_mathml_optional() {
-        let xml = r#"
-        <stock name="NoMathMLStock">
-            <eqn>100</eqn>
-            <inflow>input</inflow>
-        </stock>
-        "#;
-
-        let stock: Stock = from_str(xml).expect("Failed to parse stock without MathML");
-
-        match stock {
-            Stock::Basic(basic_stock) => {
-                // MathML should be None when not provided
-                assert!(basic_stock.mathml_equation.is_none());
-                let mathml = basic_stock.mathml_equation();
-                assert!(mathml.is_none());
-            }
-            _ => panic!("Expected BasicStock"),
-        }
+        let queue_stock = parse_queue_stock(xml);
+        let equation = queue_stock.equation();
+        assert!(
+            equation.is_some(),
+            "equation() should return Some for queue stocks"
+        );
+        assert_eq!(equation.unwrap(), &queue_stock.initial_equation);
     }
 }

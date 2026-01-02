@@ -101,46 +101,20 @@ pub trait Var<'a>: Object + Measure + Document {
     fn mathml_equation(&self) -> Option<&String>;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+/// Wrapper for non_negative element content.
+///
+/// This type handles the semantics of the non_negative element in XMILE:
+/// - None = element not present (use default behavior)
+/// - Some(None) = empty tag `<non_negative/>` (means true/enabled)
+/// - Some(Some(true)) = `<non_negative>true</non_negative>`
+/// - Some(Some(false)) = `<non_negative>false</non_negative>`
+///
+/// Note: XML parsing is handled by quick-xml in `src/xml/deserialize.rs`.
+/// This struct's serde derives are used for internal conversions only.
+#[derive(Debug, Copy, Clone, PartialEq, Default, Serialize, Deserialize)]
 struct NonNegativeContent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     value: Option<bool>,
-}
-
-impl Serialize for NonNegativeContent {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("non_negative", 1)?;
-        // Always serialize #text field, even if None, to match deserializer expectations
-        state.serialize_field("#text", &self.value)?;
-        state.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for NonNegativeContent {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        // Try to deserialize as a struct with #text field
-        #[derive(Deserialize)]
-        struct Helper {
-            #[serde(rename = "#text", default)]
-            value: Option<bool>,
-        }
-        
-        // Try deserializing - if it fails due to missing #text, treat as empty tag (None)
-        match Helper::deserialize(deserializer) {
-            Ok(helper) => Ok(NonNegativeContent { value: helper.value }),
-            Err(_) => {
-                // If deserialization fails (e.g., empty tag or missing #text),
-                // return None to match original behavior
-                Ok(NonNegativeContent { value: None })
-            }
-        }
-    }
 }
 
 impl From<NonNegativeContent> for bool {

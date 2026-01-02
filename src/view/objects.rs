@@ -781,7 +781,7 @@ impl serde::Serialize for SliderObject {
     {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("slider", 25)?;
-        
+
         state.serialize_field("@uid", &self.uid.value)?;
         state.serialize_field("@x", &self.x)?;
         state.serialize_field("@y", &self.y)?;
@@ -846,15 +846,26 @@ impl serde::Serialize for SliderObject {
         if !self.show_min_max {
             state.serialize_field("@show_min_max", &self.show_min_max)?;
         }
-        
+
         // Serialize entity tag
-        state.serialize_field("entity", &EntityTag { name: self.entity_name.clone() })?;
-        
+        state.serialize_field(
+            "entity",
+            &EntityTag {
+                name: self.entity_name.clone(),
+            },
+        )?;
+
         // Serialize reset_to if present
         if let Some((value, after)) = &self.reset_to {
-            state.serialize_field("reset_to", &ResetToTag { after: after.clone(), value: *value })?;
+            state.serialize_field(
+                "reset_to",
+                &ResetToTag {
+                    after: after.clone(),
+                    value: *value,
+                },
+            )?;
         }
-        
+
         state.end()
     }
 }
@@ -1886,8 +1897,15 @@ pub enum LinkEffect {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LinkTarget {
-    View { view_type: String, order: String },
-    Page { view_type: String, order: String, page: String },
+    View {
+        view_type: String,
+        order: String,
+    },
+    Page {
+        view_type: String,
+        order: String,
+        page: String,
+    },
     NextPage,
     PreviousPage,
     HomePage,
@@ -1951,9 +1969,19 @@ pub enum RestoreAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DataAction {
     DataManager,
-    SaveDataNow { run_name: String },
-    ImportNow { resource: String, worksheet: Option<String>, all: bool },
-    ExportNow { resource: String, worksheet: Option<String>, all: bool },
+    SaveDataNow {
+        run_name: String,
+    },
+    ImportNow {
+        resource: String,
+        worksheet: Option<String>,
+        all: bool,
+    },
+    ExportNow {
+        resource: String,
+        worksheet: Option<String>,
+        all: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

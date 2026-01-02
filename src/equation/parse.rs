@@ -14,7 +14,7 @@ pub mod common {
     };
 
     use crate::{
-        Identifier, NumericConstant, UnitEquation, 
+        Identifier, NumericConstant, UnitEquation,
         equation::identifier::{IdentifierError, IdentifierOptions},
     };
 
@@ -37,36 +37,36 @@ pub mod common {
                 nom::error::ErrorKind::Char,
             )));
         }
-        
+
         let bytes = input.as_bytes();
         let mut i = 1; // Skip opening quote
         let mut escaped = false;
-        
+
         while i < bytes.len() {
             let ch = bytes[i] as char;
-            
+
             if escaped {
                 escaped = false;
                 i += 1;
                 continue;
             }
-            
+
             if ch == '\\' {
                 escaped = true;
                 i += 1;
                 continue;
             }
-            
+
             if ch == '"' {
                 // Found closing quote - return the slice from start to here (inclusive)
                 let quoted_str = &input[..i + 1];
                 let remaining = &input[i + 1..];
                 return Ok((remaining, quoted_str));
             }
-            
+
             i += 1;
         }
-        
+
         // No closing quote found
         Err(nom::Err::Error(nom::error::Error::new(
             input,
@@ -80,27 +80,22 @@ pub mod common {
         // Try quoted identifier first (quoted identifiers can contain spaces and special chars)
         alt((
             // Quoted identifier: "identifier with spaces"
-            map_res(
-                quoted_string,
-                |s: &str| {
-                    // Identifier::parse already handles quoted identifiers properly
-                    Identifier::parse(
-                        s,
-                        IdentifierOptions {
-                            allow_dollar: true,
-                            allow_digit: true,
-                            allow_reserved: true,
-                        },
-                    )
-                },
-            ),
+            map_res(quoted_string, |s: &str| {
+                // Identifier::parse already handles quoted identifiers properly
+                Identifier::parse(
+                    s,
+                    IdentifierOptions {
+                        allow_dollar: true,
+                        allow_digit: true,
+                        allow_reserved: true,
+                    },
+                )
+            }),
             // Unquoted identifier: identifier_with_underscores or module.submodel.value
             // Match a sequence of identifier characters and dots, ensuring dots are followed by valid identifier start
             map_res(
                 verify(
-                    take_while1(|c: char| {
-                        c.is_alphanumeric() || c == '_' || c == '.'
-                    }),
+                    take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '.'),
                     |s: &str| {
                         // Validate that the string is a valid identifier (including qualified)
                         // This ensures we don't match things like "123.456" (numbers with decimals)
@@ -109,9 +104,10 @@ pub mod common {
                             // Ensure dots are followed by valid identifier characters
                             let parts: Vec<&str> = s.split('.').collect();
                             parts.iter().all(|part| {
-                                !part.is_empty() && part.chars().next().map_or(false, |first| {
-                                    first.is_alphabetic() || first == '_'
-                                })
+                                !part.is_empty()
+                                    && part.chars().next().map_or(false, |first| {
+                                        first.is_alphabetic() || first == '_'
+                                    })
                             })
                         }
                     },

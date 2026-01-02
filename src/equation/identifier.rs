@@ -610,7 +610,7 @@ fn parse_qualified_identifier(
 ) -> Result<Identifier, IdentifierError> {
     // Split by dots to get all components
     let parts: Vec<&str> = input.split('.').collect();
-    
+
     if parts.len() < 2 {
         return Err(IdentifierError::InvalidQualifiedName);
     }
@@ -631,7 +631,10 @@ fn parse_qualified_identifier(
     }
 
     // Parse the identifier part (may be quoted or unquoted)
-    let identifier = if identifier_part.starts_with('"') && identifier_part.ends_with('"') && identifier_part.len() >= 2 {
+    let identifier = if identifier_part.starts_with('"')
+        && identifier_part.ends_with('"')
+        && identifier_part.len() >= 2
+    {
         parse_quoted_identifier(identifier_part)?
     } else {
         parse_unquoted_identifier(identifier_part, options)?
@@ -803,8 +806,15 @@ impl Identifier {
     }
 
     /// Checks if this identifier is equal to a string using UCA rules.
+    ///
+    /// Both strings are compared using their XMILE-normalized compare keys,
+    /// ensuring underscore, space, and case equivalence.
     fn uca_equal_str(&self, other: &str) -> Result<bool, IdentifierError> {
-        utils::uca_equal(&self.normalized, other).map_err(|e| IdentifierError::ProcessingError(e))
+        // Get the compare key for the other string to apply XMILE normalization
+        let other_key =
+            utils::uca_compare_key(other).map_err(|e| IdentifierError::ProcessingError(e))?;
+        // Compare the compare keys (both are already normalized)
+        Ok(self.compare_key == other_key)
     }
 }
 
@@ -966,14 +976,14 @@ mod tests {
         assert_eq!(id.namespace_path().len(), 2);
         assert_eq!(id.unqualified(), "value");
         assert!(id.is_qualified());
-        
+
         // Test three-level nesting
         let id2 = Identifier::from_str("a.b.c.d").unwrap();
         let expected_path2 = Namespace::from_str("a.b.c");
         assert_eq!(id2.namespace_path(), &expected_path2);
         assert_eq!(id2.namespace_path().len(), 3);
         assert_eq!(id2.unqualified(), "d");
-        
+
         // Test with predefined namespaces
         let id3 = Identifier::from_str("std.user.custom.function").unwrap();
         let expected_path3 = Namespace::from_str("std.user.custom");

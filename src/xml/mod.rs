@@ -46,19 +46,23 @@
 
 // Display objects do not have names or any other way to specifically refer to individual objects. Therefore any display object which is referred to anywhere else in the XMILE file MUST provide a uid="<int>" attribute. This attribute is a unique linearly increasing integer which gives each display object a way to be referred to specifically while reading in an XMILE file. UIDs are NOT REQUIRED to be stable across successive reads and writes. Objects requiring a uid are listed in Chapter 6 of this specification. UIDs MUST be unique per XMILE model.
 
-pub mod schema;
-pub mod validation;
+pub mod deserialize;
 pub mod errors;
+pub mod quick;
+pub mod schema;
+pub mod serialize;
+pub mod validation;
 
-pub use schema::{XmileFile, Model, Views};
 pub use errors::{ErrorCollection, ErrorContext, ToXmileError, XmileError};
+pub use schema::{Model, Views, XmileFile};
 
+use crate::header::{Header, Product};
+use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::fs::File;
 
-use thiserror::Error;
 use crate::types::{Validate, ValidationResult};
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ParseError {
@@ -72,100 +76,311 @@ pub enum ParseError {
 
 impl XmileFile {
     /// Parse an XMILE file from a string.
-    /// 
+    ///
+    /// This method uses quick-xml for deserialization.
+    ///
     /// After parsing, function calls in expressions are automatically resolved
     /// using the registries built from macros and model variables.
     pub fn from_str(xml: &str) -> Result<Self, ParseError> {
-        let mut file: XmileFile = serde_xml_rs::from_str(xml)
-            .map_err(|e| ParseError::Deserialize(e.to_string()))?;
-        
+        use deserialize::behavior::deserialize_behavior_impl;
+        use deserialize::data::deserialize_data_impl;
+        use deserialize::deserialize_model_impl;
+        use deserialize::dimensions::deserialize_file_dimensions_impl;
+        use deserialize::header::deserialize_header_impl;
+        #[cfg(feature = "macros")]
+        use deserialize::macros::deserialize_macro_impl;
+        use deserialize::specs::deserialize_sim_specs_impl;
+        use deserialize::style::deserialize_style_impl;
+        use deserialize::units::deserialize_model_units_impl;
+        use quick_xml::Reader;
+
+        let mut reader = Reader::from_str(xml);
+        reader.trim_text(true);
+
+        let mut buf = Vec::new();
+        let mut file = XmileFile {
+            version: String::new(),
+            xmlns: "http://docs.oasis-open.org/xmile/ns/XMILE/v1.0".to_string(),
+            header: Header {
+                vendor: String::new(),
+                product: Product {
+                    version: String::new(),
+                    lang: None,
+                    name: String::new(),
+                },
+                options: None,
+                name: None,
+                version_info: None,
+                caption: None,
+                image: None,
+                author: None,
+                affiliation: None,
+                client: None,
+                copyright: None,
+                contact: None,
+                created: None,
+                modified: None,
+                uuid: None,
+                includes: None,
+            },
+            sim_specs: None,
+            model_units: None,
+            dimensions: None,
+            behavior: None,
+            style: None,
+            data: None,
+            models: Vec::new(),
+            #[cfg(feature = "macros")]
+            macros: Vec::new(),
+        };
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(quick_xml::events::Event::Start(e)) => {
+                    match e.name().as_ref() {
+                        b"xmile" => {
+                            // Read attributes
+                            for attr in e.attributes() {
+                                let attr = attr.map_err(|e| ParseError::Xml(e.to_string()))?;
+                                match attr.key.as_ref() {
+                                    b"version" => {
+                                        file.version = attr
+                                            .decode_and_unescape_value(&reader)
+                                            .map_err(|e| ParseError::Xml(e.to_string()))?
+                                            .to_string();
+                                    }
+                                    b"xmlns" => {
+                                        file.xmlns = attr
+                                            .decode_and_unescape_value(&reader)
+                                            .map_err(|e| ParseError::Xml(e.to_string()))?
+                                            .to_string();
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        b"header" => {
+                            buf.clear();
+                            file.header = deserialize_header_impl(&mut reader, &mut buf)
+                                .map_err(|e| ParseError::Deserialize(e.to_string()))?;
+                        }
+                        b"sim_specs" => {
+                            // Extract attributes from start tag
+                            let mut method: Option<String> = None;
+                            let mut time_units: Option<String> = None;
+                            for attr in e.attributes() {
+                                let attr = attr.map_err(|e| ParseError::Xml(e.to_string()))?;
+                                match attr.key.as_ref() {
+                                    b"method" => {
+                                        method = Some(
+                                            attr.decode_and_unescape_value(&reader)
+                                                .map_err(|e| ParseError::Xml(e.to_string()))?
+                                                .to_string(),
+                                        );
+                                    }
+                                    b"time_units" => {
+                                        time_units = Some(
+                                            attr.decode_and_unescape_value(&reader)
+                                                .map_err(|e| ParseError::Xml(e.to_string()))?
+                                                .to_string(),
+                                        );
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            buf.clear();
+                            file.sim_specs = Some(
+                                deserialize_sim_specs_impl(
+                                    &mut reader,
+                                    &mut buf,
+                                    method,
+                                    time_units,
+                                )
+                                .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        b"model_units" => {
+                            buf.clear();
+                            file.model_units = Some(
+                                deserialize_model_units_impl(&mut reader, &mut buf)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        b"dimensions" => {
+                            buf.clear();
+                            file.dimensions = Some(
+                                deserialize_file_dimensions_impl(&mut reader, &mut buf)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        b"model" => {
+                            // Extract attributes from start tag
+                            let mut name: Option<String> = None;
+                            let mut resource: Option<String> = None;
+                            for attr in e.attributes() {
+                                let attr = attr.map_err(|e| ParseError::Xml(e.to_string()))?;
+                                match attr.key.as_ref() {
+                                    b"name" => {
+                                        name = Some(
+                                            attr.decode_and_unescape_value(&reader)
+                                                .map_err(|e| ParseError::Xml(e.to_string()))?
+                                                .to_string(),
+                                        );
+                                    }
+                                    b"resource" => {
+                                        resource = Some(
+                                            attr.decode_and_unescape_value(&reader)
+                                                .map_err(|e| ParseError::Xml(e.to_string()))?
+                                                .to_string(),
+                                        );
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            buf.clear();
+                            let model =
+                                deserialize_model_impl(&mut reader, &mut buf, name, resource)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?;
+                            file.models.push(model);
+                        }
+                        b"behavior" => {
+                            buf.clear();
+                            file.behavior = Some(
+                                deserialize_behavior_impl(&mut reader, &mut buf, false)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        b"style" => {
+                            // Extract attributes from start tag
+                            let mut attrs: Vec<(Vec<u8>, String)> = Vec::new();
+                            for attr in e.attributes() {
+                                let attr = attr.map_err(|e| ParseError::Xml(e.to_string()))?;
+                                let key = attr.key.as_ref().to_vec();
+                                let value = attr
+                                    .decode_and_unescape_value(&reader)
+                                    .map_err(|e| ParseError::Xml(e.to_string()))?
+                                    .to_string();
+                                attrs.push((key, value));
+                            }
+                            buf.clear();
+                            file.style = Some(
+                                deserialize_style_impl(&mut reader, &mut buf, attrs, false)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        b"data" => {
+                            buf.clear();
+                            file.data = Some(
+                                deserialize_data_impl(&mut reader, &mut buf, false)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        #[cfg(feature = "macros")]
+                        b"macro" => {
+                            // Extract attributes from start tag
+                            let mut name: Option<String> = None;
+                            let mut namespace: Option<String> = None;
+                            for attr in e.attributes() {
+                                let attr = attr.map_err(|e| ParseError::Xml(e.to_string()))?;
+                                match attr.key.as_ref() {
+                                    b"name" => {
+                                        name = Some(
+                                            attr.decode_and_unescape_value(&reader)
+                                                .map_err(|e| ParseError::Xml(e.to_string()))?
+                                                .to_string(),
+                                        );
+                                    }
+                                    b"namespace" => {
+                                        namespace = Some(
+                                            attr.decode_and_unescape_value(&reader)
+                                                .map_err(|e| ParseError::Xml(e.to_string()))?
+                                                .to_string(),
+                                        );
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            buf.clear();
+                            let macro_def =
+                                deserialize_macro_impl(&mut reader, &mut buf, name, namespace)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?;
+                            file.macros.push(macro_def);
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(quick_xml::events::Event::Empty(e)) => {
+                    // Handle empty elements like <behavior/> or <data/>
+                    match e.name().as_ref() {
+                        b"behavior" => {
+                            buf.clear();
+                            file.behavior = Some(
+                                deserialize_behavior_impl(&mut reader, &mut buf, true)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        b"style" => {
+                            // Extract attributes from start tag
+                            let mut attrs: Vec<(Vec<u8>, String)> = Vec::new();
+                            for attr in e.attributes() {
+                                let attr = attr.map_err(|e| ParseError::Xml(e.to_string()))?;
+                                let key = attr.key.as_ref().to_vec();
+                                let value = attr
+                                    .decode_and_unescape_value(&reader)
+                                    .map_err(|e| ParseError::Xml(e.to_string()))?
+                                    .to_string();
+                                attrs.push((key, value));
+                            }
+                            buf.clear();
+                            file.style = Some(
+                                deserialize_style_impl(&mut reader, &mut buf, attrs, true)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        b"data" => {
+                            buf.clear();
+                            file.data = Some(
+                                deserialize_data_impl(&mut reader, &mut buf, true)
+                                    .map_err(|e| ParseError::Deserialize(e.to_string()))?,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(quick_xml::events::Event::Eof) => break,
+                Ok(_) => {}
+                Err(e) => return Err(ParseError::Xml(e.to_string())),
+            }
+            buf.clear();
+        }
+
         // Automatically resolve function calls in expressions
         if let Err(errors) = file.resolve_all_expressions() {
-            return Err(ParseError::Deserialize(
-                format!("Error resolving function calls: {}", errors.join("; "))
-            ));
+            return Err(ParseError::Deserialize(format!(
+                "Error resolving function calls: {}",
+                errors.join("; ")
+            )));
         }
-        
-        Ok(file)
-    }
 
-    /// Parse an XMILE file from a string with enhanced error reporting.
-    /// 
-    /// After parsing, function calls in expressions are automatically resolved
-    /// using the registries built from macros and model variables.
-    pub fn from_str_with_context(xml: &str) -> Result<Self, XmileError> {
-        let mut file: XmileFile = serde_xml_rs::from_str(xml).map_err(|e| {
-            // Try to extract line number from error message if available
-            let error_str = e.to_string();
-            let context = extract_context_from_error(&error_str);
-            
-            XmileError::Deserialize {
-                message: error_str,
-                context,
-            }
-        })?;
-        
-        // Automatically resolve function calls in expressions
-        if let Err(resolution_errors) = file.resolve_all_expressions() {
-            return Err(XmileError::Validation {
-                message: format!("Error resolving function calls: {}", resolution_errors.join("; ")),
-                context: ErrorContext::new(),
-                warnings: Vec::new(),
-                errors: resolution_errors,
-            });
-        }
-        
         Ok(file)
     }
 
     /// Parse an XMILE file from a reader.
-    /// 
+    ///
+    /// This method uses quick-xml for deserialization.
+    ///
     /// After parsing, function calls in expressions are automatically resolved
     /// using the registries built from macros and model variables.
-    pub fn from_reader<R: Read>(reader: R) -> Result<Self, ParseError> {
-        let mut file: XmileFile = serde_xml_rs::from_reader(reader)
-            .map_err(|e| ParseError::Deserialize(e.to_string()))?;
-        
-        // Automatically resolve function calls in expressions
-        if let Err(errors) = file.resolve_all_expressions() {
-            return Err(ParseError::Deserialize(
-                format!("Error resolving function calls: {}", errors.join("; "))
-            ));
-        }
-        
-        Ok(file)
-    }
-
-    /// Parse an XMILE file from a reader with enhanced error reporting.
-    /// 
-    /// After parsing, function calls in expressions are automatically resolved
-    /// using the registries built from macros and model variables.
-    pub fn from_reader_with_context<R: Read>(reader: R) -> Result<Self, XmileError> {
-        let mut file: XmileFile = serde_xml_rs::from_reader(reader).map_err(|e| {
-            let error_str = e.to_string();
-            let context = extract_context_from_error(&error_str);
-            
-            XmileError::Deserialize {
-                message: error_str,
-                context,
-            }
-        })?;
-        
-        // Automatically resolve function calls in expressions
-        if let Err(resolution_errors) = file.resolve_all_expressions() {
-            return Err(XmileError::Validation {
-                message: format!("Error resolving function calls: {}", resolution_errors.join("; ")),
-                context: ErrorContext::new(),
-                warnings: Vec::new(),
-                errors: resolution_errors,
-            });
-        }
-        
-        Ok(file)
+    pub fn from_reader<R: Read>(mut reader: R) -> Result<Self, ParseError> {
+        let mut xml = String::new();
+        reader.read_to_string(&mut xml)?;
+        Self::from_str(&xml)
     }
 
     /// Parse an XMILE file from a file path.
-    /// 
+    ///
+    /// This method uses quick-xml for deserialization.
+    ///
     /// After parsing, function calls in expressions are automatically resolved
     /// using the registries built from macros and model variables.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ParseError> {
@@ -173,69 +388,176 @@ impl XmileFile {
         Self::from_reader(file)
     }
 
-    /// Parse an XMILE file from a file path with enhanced error reporting.
-    /// 
+    /// Parse an XMILE file from a string with enhanced error reporting.
+    ///
+    /// This method uses quick-xml for deserialization.
+    ///
     /// After parsing, function calls in expressions are automatically resolved
     /// using the registries built from macros and model variables.
-    pub fn from_file_with_context<P: AsRef<Path>>(path: P) -> Result<Self, XmileError> {
-        let path_buf = path.as_ref().to_path_buf();
-        let file = File::open(&path_buf)?;
-        
-        let mut xmile_file: XmileFile = serde_xml_rs::from_reader(file).map_err(|e| {
+    pub fn from_str_with_context(xml: &str) -> Result<Self, XmileError> {
+        Self::from_str(xml).map_err(|e| {
             let error_str = e.to_string();
-            let mut context = extract_context_from_error(&error_str);
-            context.file_path = Some(path_buf);
-            
+            let context = extract_context_from_error(&error_str);
+
             XmileError::Deserialize {
                 message: error_str,
                 context,
             }
-        })?;
-        
-        // Automatically resolve function calls in expressions
-        if let Err(resolution_errors) = xmile_file.resolve_all_expressions() {
-            return Err(XmileError::Validation {
-                message: format!("Error resolving function calls: {}", resolution_errors.join("; ")),
-                context: ErrorContext::new(),
-                warnings: Vec::new(),
-                errors: resolution_errors,
-            });
-        }
-        
-        Ok(xmile_file)
+        })
+    }
+
+    /// Parse an XMILE file from a reader with enhanced error reporting.
+    ///
+    /// This method uses quick-xml for deserialization.
+    ///
+    /// After parsing, function calls in expressions are automatically resolved
+    /// using the registries built from macros and model variables.
+    pub fn from_reader_with_context<R: Read>(reader: R) -> Result<Self, XmileError> {
+        Self::from_reader(reader).map_err(|e| {
+            let error_str = e.to_string();
+            let context = extract_context_from_error(&error_str);
+
+            XmileError::Deserialize {
+                message: error_str,
+                context,
+            }
+        })
+    }
+
+    /// Parse an XMILE file from a file path with enhanced error reporting.
+    ///
+    /// This method uses quick-xml for deserialization.
+    ///
+    /// After parsing, function calls in expressions are automatically resolved
+    /// using the registries built from macros and model variables.
+    pub fn from_file_with_context<P: AsRef<Path>>(path: P) -> Result<Self, XmileError> {
+        let path_buf = path.as_ref().to_path_buf();
+        Self::from_file(&path_buf).map_err(|e| {
+            let error_str = e.to_string();
+            let mut context = extract_context_from_error(&error_str);
+            context.file_path = Some(path_buf);
+
+            XmileError::Deserialize {
+                message: error_str,
+                context,
+            }
+        })
+    }
+
+    /// Serialize the XMILE file to XML using quick-xml.
+    ///
+    /// This method uses the new quick-xml-based serialization infrastructure
+    /// for better round-trip testing and handling of edge cases.
+    pub fn to_xml(&self) -> Result<String, serialize::SerializeError> {
+        use quick_xml::Writer;
+        use serialize::{serialize_header, serialize_sim_specs, write_xml_declaration};
+
+        let mut writer = Writer::new(Vec::new());
+
+        // Write XML declaration
+        write_xml_declaration(&mut writer)?;
+
+        // Write root element with attributes
+        writer
+            .create_element("xmile")
+            .with_attribute(("version", self.version.as_str()))
+            .with_attribute(("xmlns", self.xmlns.as_str()))
+            .write_inner_content(|writer| -> Result<(), serialize::SerializeError> {
+                // Serialize header (required)
+                serialize_header(writer, &self.header)?;
+
+                // Serialize optional sim_specs
+                if let Some(ref sim_specs) = self.sim_specs {
+                    serialize_sim_specs(writer, sim_specs)?;
+                }
+
+                // Optional: model_units
+                if let Some(ref model_units) = self.model_units {
+                    serialize::serialize_model_units(writer, model_units)?;
+                }
+
+                // Optional: dimensions
+                if let Some(ref dimensions) = self.dimensions {
+                    serialize::serialize_file_dimensions(writer, dimensions)?;
+                }
+
+                // Optional: behavior
+                if let Some(ref behavior) = self.behavior {
+                    serialize::serialize_behavior(writer, behavior)?;
+                }
+
+                // Optional: style
+                if let Some(ref style) = self.style {
+                    serialize::serialize_style(writer, style)?;
+                }
+
+                // Optional: data
+                if let Some(ref data) = self.data {
+                    serialize::serialize_data(writer, data)?;
+                }
+
+                // Serialize models
+                use serialize::serialize_model;
+                for model in &self.models {
+                    serialize_model(writer, model)?;
+                }
+
+                // Serialize macros
+                #[cfg(feature = "macros")]
+                {
+                    use serialize::serialize_macro;
+                    for macro_def in &self.macros {
+                        serialize_macro(writer, macro_def)?;
+                    }
+                }
+
+                Ok(())
+            })?;
+
+        let xml_bytes = writer.into_inner();
+        Ok(String::from_utf8(xml_bytes)?)
     }
 
     /// Validate the parsed XMILE file and return detailed errors if validation fails.
-    /// 
+    ///
     /// This includes validation of:
     /// - Model structure and variable definitions
     /// - Expression resolution (macros, graphical functions, arrays)
     /// - Function call resolution validation
     pub fn validate(&self) -> Result<(), XmileError> {
         let mut error_collection = ErrorCollection::new();
-        
+
         // Validate macro resolution at file level
         #[cfg(feature = "macros")]
         {
             let macro_registry = self.build_macro_registry();
-            let macro_registry_ref = if self.macros.is_empty() { None } else { Some(&macro_registry) };
-            
+            let macro_registry_ref = if self.macros.is_empty() {
+                None
+            } else {
+                Some(&macro_registry)
+            };
+
             for (idx, model) in self.models.iter().enumerate() {
                 let gf_registry = model.build_gf_registry();
                 #[cfg(feature = "arrays")]
                 let array_registry = Some(model.build_array_registry());
-                
+
                 for var in &model.variables.variables {
                     use crate::model::vars::Variable;
                     let validation_errors = match var {
                         Variable::Auxiliary(aux) => {
                             #[cfg(feature = "arrays")]
                             {
-                                aux.equation.validate_resolved(macro_registry_ref, Some(&gf_registry), array_registry.as_ref())
+                                aux.equation.validate_resolved(
+                                    macro_registry_ref,
+                                    Some(&gf_registry),
+                                    array_registry.as_ref(),
+                                )
                             }
                             #[cfg(not(feature = "arrays"))]
                             {
-                                aux.equation.validate_resolved(macro_registry_ref, Some(&gf_registry))
+                                aux.equation
+                                    .validate_resolved(macro_registry_ref, Some(&gf_registry))
                             }
                         }
                         Variable::Stock(stock) => {
@@ -244,31 +566,52 @@ impl XmileFile {
                                 Stock::Basic(basic) => {
                                     #[cfg(feature = "arrays")]
                                     {
-                                        basic.initial_equation.validate_resolved(macro_registry_ref, Some(&gf_registry), array_registry.as_ref())
+                                        basic.initial_equation.validate_resolved(
+                                            macro_registry_ref,
+                                            Some(&gf_registry),
+                                            array_registry.as_ref(),
+                                        )
                                     }
                                     #[cfg(not(feature = "arrays"))]
                                     {
-                                        basic.initial_equation.validate_resolved(macro_registry_ref, Some(&gf_registry))
+                                        basic.initial_equation.validate_resolved(
+                                            macro_registry_ref,
+                                            Some(&gf_registry),
+                                        )
                                     }
                                 }
                                 Stock::Conveyor(conveyor) => {
                                     #[cfg(feature = "arrays")]
                                     {
-                                        conveyor.initial_equation.validate_resolved(macro_registry_ref, Some(&gf_registry), array_registry.as_ref())
+                                        conveyor.initial_equation.validate_resolved(
+                                            macro_registry_ref,
+                                            Some(&gf_registry),
+                                            array_registry.as_ref(),
+                                        )
                                     }
                                     #[cfg(not(feature = "arrays"))]
                                     {
-                                        conveyor.initial_equation.validate_resolved(macro_registry_ref, Some(&gf_registry))
+                                        conveyor.initial_equation.validate_resolved(
+                                            macro_registry_ref,
+                                            Some(&gf_registry),
+                                        )
                                     }
                                 }
                                 Stock::Queue(queue) => {
                                     #[cfg(feature = "arrays")]
                                     {
-                                        queue.initial_equation.validate_resolved(macro_registry_ref, Some(&gf_registry), array_registry.as_ref())
+                                        queue.initial_equation.validate_resolved(
+                                            macro_registry_ref,
+                                            Some(&gf_registry),
+                                            array_registry.as_ref(),
+                                        )
                                     }
                                     #[cfg(not(feature = "arrays"))]
                                     {
-                                        queue.initial_equation.validate_resolved(macro_registry_ref, Some(&gf_registry))
+                                        queue.initial_equation.validate_resolved(
+                                            macro_registry_ref,
+                                            Some(&gf_registry),
+                                        )
                                     }
                                 }
                             }
@@ -277,7 +620,11 @@ impl XmileFile {
                             if let Some(ref eqn) = flow.equation {
                                 #[cfg(feature = "arrays")]
                                 {
-                                    eqn.validate_resolved(macro_registry_ref, Some(&gf_registry), array_registry.as_ref())
+                                    eqn.validate_resolved(
+                                        macro_registry_ref,
+                                        Some(&gf_registry),
+                                        array_registry.as_ref(),
+                                    )
                                 }
                                 #[cfg(not(feature = "arrays"))]
                                 {
@@ -291,7 +638,11 @@ impl XmileFile {
                             if let Some(ref eqn) = gf.equation {
                                 #[cfg(feature = "arrays")]
                                 {
-                                    eqn.validate_resolved(macro_registry_ref, Some(&gf_registry), array_registry.as_ref())
+                                    eqn.validate_resolved(
+                                        macro_registry_ref,
+                                        Some(&gf_registry),
+                                        array_registry.as_ref(),
+                                    )
                                 }
                                 #[cfg(not(feature = "arrays"))]
                                 {
@@ -303,12 +654,14 @@ impl XmileFile {
                         }
                         _ => Vec::new(),
                     };
-                    
+
                     if !validation_errors.is_empty() {
-                        let context = ErrorContext::new()
-                            .with_parsing(format!("model[{}]", idx));
+                        let context = ErrorContext::new().with_parsing(format!("model[{}]", idx));
                         error_collection.push(XmileError::Validation {
-                            message: format!("Expression resolution validation failed: {}", validation_errors.join("; ")),
+                            message: format!(
+                                "Expression resolution validation failed: {}",
+                                validation_errors.join("; ")
+                            ),
                             context,
                             warnings: Vec::new(),
                             errors: validation_errors,
@@ -317,15 +670,14 @@ impl XmileFile {
                 }
             }
         }
-        
+
         // Merge file-level and model-level dimensions for array validation
         #[cfg(feature = "arrays")]
         let file_dimensions = &self.dimensions;
-        
+
         for (idx, model) in self.models.iter().enumerate() {
-            let context = ErrorContext::new()
-                .with_parsing(format!("model[{}]", idx));
-            
+            let context = ErrorContext::new().with_parsing(format!("model[{}]", idx));
+
             // Validate model with file-level dimensions for array validation
             #[cfg(feature = "arrays")]
             {
@@ -334,13 +686,16 @@ impl XmileFile {
                 let dim_map: HashMap<String, crate::dimensions::Dimension> = file_dimensions
                     .as_ref()
                     .map(|dims| {
-                        dims.dims.iter().map(|dim| (dim.name.clone(), dim.clone())).collect()
+                        dims.dims
+                            .iter()
+                            .map(|dim| (dim.name.clone(), dim.clone()))
+                            .collect()
                     })
                     .unwrap_or_default();
-                
+
                 // Note: Model doesn't currently have a dimensions field, but if it did,
                 // we would override file dimensions with model dimensions here
-                
+
                 let merged_dimensions = if dim_map.is_empty() {
                     None
                 } else {
@@ -348,65 +703,71 @@ impl XmileFile {
                         dims: dim_map.into_values().collect(),
                     })
                 };
-                
+
                 // Validate array elements with merged dimensions
                 use crate::model::vars::Variable;
                 use crate::model::vars::array::{Dimension, VariableDimensions};
-                
+
                 for var in &model.variables.variables {
                     let var_name = crate::xml::validation::get_variable_name(var)
                         .map(|n| n.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
-                    
-                    let (var_dims, elements): (Option<VariableDimensions>, Option<&Vec<crate::model::vars::array::ArrayElement>>) = match var {
-                        Variable::Auxiliary(aux) => {
-                            (aux.dimensions.clone(), Some(&aux.elements))
-                        }
+
+                    let (var_dims, elements): (
+                        Option<VariableDimensions>,
+                        Option<&Vec<crate::model::vars::array::ArrayElement>>,
+                    ) = match var {
+                        Variable::Auxiliary(aux) => (aux.dimensions.clone(), Some(&aux.elements)),
                         Variable::Stock(stock) => match stock {
                             crate::model::vars::stock::Stock::Basic(b) => {
-                                let dims = b.dimensions.as_ref().map(|names| {
-                                    VariableDimensions {
-                                        dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
-                                    }
+                                let dims = b.dimensions.as_ref().map(|names| VariableDimensions {
+                                    dims: names
+                                        .iter()
+                                        .map(|name| Dimension { name: name.clone() })
+                                        .collect(),
                                 });
                                 (dims, Some(&b.elements))
                             }
                             crate::model::vars::stock::Stock::Conveyor(c) => {
-                                let dims = c.dimensions.as_ref().map(|names| {
-                                    VariableDimensions {
-                                        dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
-                                    }
+                                let dims = c.dimensions.as_ref().map(|names| VariableDimensions {
+                                    dims: names
+                                        .iter()
+                                        .map(|name| Dimension { name: name.clone() })
+                                        .collect(),
                                 });
                                 (dims, Some(&c.elements))
                             }
                             crate::model::vars::stock::Stock::Queue(q) => {
-                                let dims = q.dimensions.as_ref().map(|names| {
-                                    VariableDimensions {
-                                        dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
-                                    }
+                                let dims = q.dimensions.as_ref().map(|names| VariableDimensions {
+                                    dims: names
+                                        .iter()
+                                        .map(|name| Dimension { name: name.clone() })
+                                        .collect(),
                                 });
                                 (dims, Some(&q.elements))
                             }
                         },
                         Variable::Flow(flow) => {
-                            let dims = flow.dimensions.as_ref().map(|names| {
-                                VariableDimensions {
-                                    dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
-                                }
+                            let dims = flow.dimensions.as_ref().map(|names| VariableDimensions {
+                                dims: names
+                                    .iter()
+                                    .map(|name| Dimension { name: name.clone() })
+                                    .collect(),
                             });
                             (dims, Some(&flow.elements))
                         }
                         Variable::GraphicalFunction(gf) => {
-                            let dims = gf.dimensions.as_ref().map(|names| {
-                                VariableDimensions {
-                                    dims: names.iter().map(|name| Dimension { name: name.clone() }).collect(),
-                                }
+                            let dims = gf.dimensions.as_ref().map(|names| VariableDimensions {
+                                dims: names
+                                    .iter()
+                                    .map(|name| Dimension { name: name.clone() })
+                                    .collect(),
                             });
                             (dims, Some(&gf.elements))
                         }
                         _ => (None, None),
                     };
-                    
+
                     if let (Some(dims), Some(elems)) = (var_dims, elements) {
                         if !elems.is_empty() {
                             match crate::xml::validation::validate_array_elements(
@@ -420,7 +781,10 @@ impl XmileFile {
                                     for warn in warns {
                                         error_collection.push(XmileError::Validation {
                                             message: warn.clone(),
-                                            context: context.clone().with_parsing(format!("model[{}].variable[{}]", idx, var_name)),
+                                            context: context.clone().with_parsing(format!(
+                                                "model[{}].variable[{}]",
+                                                idx, var_name
+                                            )),
                                             warnings: vec![warn],
                                             errors: Vec::new(),
                                         });
@@ -428,8 +792,14 @@ impl XmileFile {
                                 }
                                 ValidationResult::Invalid(warns, errs) => {
                                     error_collection.push(XmileError::Validation {
-                                        message: format!("Array validation failed for variable '{}'", var_name),
-                                        context: context.clone().with_parsing(format!("model[{}].variable[{}]", idx, var_name)),
+                                        message: format!(
+                                            "Array validation failed for variable '{}'",
+                                            var_name
+                                        ),
+                                        context: context.clone().with_parsing(format!(
+                                            "model[{}].variable[{}]",
+                                            idx, var_name
+                                        )),
                                         warnings: warns,
                                         errors: errs,
                                     });
@@ -439,13 +809,13 @@ impl XmileFile {
                     }
                 }
             }
-            
+
             let validation_result = model.validate();
             if validation_result.is_invalid() {
                 error_collection.push(validation_result.to_xmile_error(context));
             }
         }
-        
+
         if let Some(error) = error_collection.into_error() {
             Err(error)
         } else {
@@ -455,14 +825,14 @@ impl XmileFile {
 }
 
 /// Extract context information from error messages (line numbers, etc.).
-/// 
+///
 /// Since serde-xml-rs doesn't provide structured error information,
 /// we parse the error message string to extract what context we can.
 /// This function handles various error message patterns that serde-xml-rs
 /// and underlying XML parsers may produce.
 fn extract_context_from_error(error_str: &str) -> ErrorContext {
     let mut context = ErrorContext::new();
-    
+
     // Try to extract line number from various patterns:
     // - "line X"
     // - "at line X"
@@ -470,7 +840,7 @@ fn extract_context_from_error(error_str: &str) -> ErrorContext {
     // - "Line X:"
     // - "line X, column Y"
     // - "line X:Y" (line:column)
-    
+
     // Pattern: "line X" (most common)
     if let Some(line_start) = error_str.find("line ") {
         let after_line = &error_str[line_start + 5..];
@@ -480,10 +850,10 @@ fn extract_context_from_error(error_str: &str) -> ErrorContext {
             .find(|(_, c)| !c.is_ascii_digit() && *c != ':')
             .map(|(i, _)| i)
             .unwrap_or(after_line.len());
-        
+
         if let Ok(line) = after_line[..end].parse::<usize>() {
             context.line = Some(line);
-            
+
             // Check for column after colon: "line X:Y"
             if end < after_line.len() && after_line.as_bytes()[end] == b':' {
                 let after_colon = &after_line[end + 1..];
@@ -492,14 +862,14 @@ fn extract_context_from_error(error_str: &str) -> ErrorContext {
                     .find(|(_, c)| !c.is_ascii_digit())
                     .map(|(i, _)| i)
                     .unwrap_or(after_colon.len());
-                
+
                 if let Ok(column) = after_colon[..col_end].parse::<usize>() {
                     context.column = Some(column);
                 }
             }
         }
     }
-    
+
     // Pattern: "column X" (if line wasn't found)
     if context.column.is_none() {
         if let Some(col_start) = error_str.find("column ") {
@@ -509,15 +879,15 @@ fn extract_context_from_error(error_str: &str) -> ErrorContext {
                 .find(|(_, c)| !c.is_ascii_digit())
                 .map(|(i, _)| i)
                 .unwrap_or(after_col.len());
-            
+
             if let Ok(column) = after_col[..col_end].parse::<usize>() {
                 context.column = Some(column);
             }
         }
     }
-    
+
     // Pattern: "at position X" (byte position, less useful but we can try)
     // This is less reliable but sometimes the only info available
-    
+
     context
 }

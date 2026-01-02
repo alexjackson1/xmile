@@ -1,5 +1,5 @@
-use xmile::xml::schema::XmileFile;
 use xmile::types::Validate;
+use xmile::xml::schema::XmileFile;
 
 #[test]
 fn test_validate_variable_name_uniqueness() {
@@ -22,13 +22,17 @@ fn test_validate_variable_name_uniqueness() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     let model = &file.models[0];
     let result = model.validate();
-    
+
     assert!(result.is_invalid());
     if let xmile::types::ValidationResult::Invalid(_, errors) = result {
-        assert!(errors.iter().any(|e| e.contains("TestStock") && (e.contains("Duplicate") || e.contains("found"))));
+        assert!(
+            errors.iter().any(
+                |e| e.contains("TestStock") && (e.contains("Duplicate") || e.contains("found"))
+            )
+        );
     } else {
         panic!("Expected Invalid result");
     }
@@ -55,10 +59,10 @@ fn test_validate_unique_variable_names() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     let model = &file.models[0];
     let result = model.validate();
-    
+
     assert!(result.is_valid() || result.has_warnings());
 }
 
@@ -86,13 +90,14 @@ fn test_validate_view_object_references() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     let model = &file.models[0];
     let result = model.validate();
-    
+
     assert!(result.is_invalid());
     if let xmile::types::ValidationResult::Invalid(_, errors) = result {
-        assert!(errors.iter().any(|e| e.contains("NonExistentStock") && e.contains("references a variable that does not exist")));
+        assert!(errors.iter().any(|e| e.contains("NonExistentStock")
+            && e.contains("references a variable that does not exist")));
     } else {
         panic!("Expected Invalid result");
     }
@@ -120,13 +125,17 @@ fn test_validate_group_entity_references() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     let model = &file.models[0];
     let result = model.validate();
-    
+
     assert!(result.is_invalid());
     if let xmile::types::ValidationResult::Invalid(_, errors) = result {
-        assert!(errors.iter().any(|e| e.contains("NonExistentEntity") && e.contains("undefined entity")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("NonExistentEntity") && e.contains("undefined entity"))
+        );
     } else {
         panic!("Expected Invalid result");
     }

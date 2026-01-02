@@ -117,7 +117,7 @@ impl Dimension {
     }
 
     /// Get the size of this dimension.
-    /// 
+    ///
     /// Returns the size if it's a numbered dimension, or the number of named elements
     /// if it's a named dimension.
     pub fn size(&self) -> usize {
@@ -129,7 +129,7 @@ impl Dimension {
     }
 
     /// Check if an index (as string) is valid for this dimension.
-    /// 
+    ///
     /// For numbered dimensions, checks if the string parses to a valid number
     /// within bounds. For named dimensions, checks if it matches an element name.
     pub fn is_valid_index(&self, index: &str) -> bool {

@@ -162,9 +162,7 @@ pub struct ErrorCollection {
 impl ErrorCollection {
     /// Create a new empty error collection.
     pub fn new() -> Self {
-        Self {
-            errors: Vec::new(),
-        }
+        Self { errors: Vec::new() }
     }
 
     /// Add an error to the collection.
@@ -189,7 +187,7 @@ impl ErrorCollection {
         } else if self.errors.len() == 1 {
             Some(self.errors.into_iter().next().unwrap())
         } else {
-            Some(            XmileError::Multiple(self.errors))
+            Some(XmileError::Multiple(self.errors))
         }
     }
 
@@ -213,14 +211,14 @@ impl From<Vec<XmileError>> for ErrorCollection {
 
 impl From<ErrorCollection> for XmileError {
     fn from(collection: ErrorCollection) -> Self {
-        collection.into_error().unwrap_or_else(|| {
-            XmileError::Validation {
+        collection
+            .into_error()
+            .unwrap_or_else(|| XmileError::Validation {
                 message: "Unknown error".to_string(),
                 context: ErrorContext::new(),
                 warnings: Vec::new(),
                 errors: Vec::new(),
-            }
-        })
+            })
     }
 }
 
@@ -232,22 +230,18 @@ pub trait ToXmileError {
 impl ToXmileError for crate::types::ValidationResult {
     fn to_xmile_error(self, context: ErrorContext) -> XmileError {
         match self {
-            crate::types::ValidationResult::Valid(_) => {
-                XmileError::Validation {
-                    message: "Validation passed".to_string(),
-                    context,
-                    warnings: Vec::new(),
-                    errors: Vec::new(),
-                }
-            }
-            crate::types::ValidationResult::Warnings(_, warnings) => {
-                XmileError::Validation {
-                    message: format!("Validation passed with {} warning(s)", warnings.len()),
-                    context,
-                    warnings,
-                    errors: Vec::new(),
-                }
-            }
+            crate::types::ValidationResult::Valid(_) => XmileError::Validation {
+                message: "Validation passed".to_string(),
+                context,
+                warnings: Vec::new(),
+                errors: Vec::new(),
+            },
+            crate::types::ValidationResult::Warnings(_, warnings) => XmileError::Validation {
+                message: format!("Validation passed with {} warning(s)", warnings.len()),
+                context,
+                warnings,
+                errors: Vec::new(),
+            },
             crate::types::ValidationResult::Invalid(warnings, errors) => {
                 let error_count = errors.len();
                 let message = if error_count == 1 {

@@ -293,9 +293,9 @@ impl Serialize for View {
     {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("view", 22)?;
-        
+
         state.serialize_field("@uid", &self.uid)?;
-        
+
         // Serialize view_type
         let type_str = match &self.view_type {
             ViewType::StockFlow => "stock_flow",
@@ -308,7 +308,7 @@ impl Serialize for View {
             }
         };
         state.serialize_field("@type", type_str)?;
-        
+
         if let Some(order) = &self.order {
             state.serialize_field("@order", order)?;
         }
@@ -333,11 +333,11 @@ impl Serialize for View {
         state.serialize_field("@show_pages", &self.show_pages)?;
         state.serialize_field("@home_page", &self.home_page)?;
         state.serialize_field("@home_view", &self.home_view)?;
-        
+
         if let Some(style) = &self.style {
             state.serialize_field("style", style)?;
         }
-        
+
         // Serialize all object vectors
         if !self.stocks.is_empty() {
             state.serialize_field("stock", &self.stocks)?;
@@ -408,7 +408,7 @@ impl Serialize for View {
         if !self.buttons.is_empty() {
             state.serialize_field("button", &self.buttons)?;
         }
-        
+
         state.end()
     }
 }

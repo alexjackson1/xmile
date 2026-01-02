@@ -19,7 +19,7 @@ fn test_macro_basic() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     assert_eq!(file.macros.len(), 1);
     let macro_def = &file.macros[0];
     // Identifier normalizes underscores to spaces
@@ -49,7 +49,7 @@ fn test_macro_with_parameters() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     assert_eq!(file.macros.len(), 1);
     let macro_def = &file.macros[0];
     assert_eq!(&macro_def.name.to_string(), "add");

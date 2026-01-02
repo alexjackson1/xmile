@@ -128,7 +128,8 @@ pub struct Product {
     #[serde(rename = "@lang")]
     pub lang: Option<String>,
     /// The product name (text content of the tag).
-    /// In serde-xml-rs, text content is typically the field name or can be accessed via #text
+    /// Note: XML parsing is handled by quick-xml in `src/xml/deserialize.rs`.
+    /// This serde attribute is for internal struct conversions only.
     #[serde(rename = "#text")]
     pub name: String,
 }

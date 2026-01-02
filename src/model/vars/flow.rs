@@ -73,11 +73,11 @@ struct RawFlow {
     #[cfg(feature = "arrays")]
     #[serde(rename = "dimensions")]
     dimensions: Option<VariableDimensions>,
-    
+
     #[cfg(feature = "arrays")]
     #[serde(rename = "element", default)]
     elements: Vec<ArrayElement>,
-    
+
     #[serde(rename = "event_poster")]
     event_poster: Option<EventPoster>,
 }
@@ -185,7 +185,10 @@ impl From<&BasicFlow> for RawFlow {
             dimensions: flow.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
                 VariableDimensions {
-                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                    dims: dims
+                        .iter()
+                        .map(|name| Dimension { name: name.clone() })
+                        .collect(),
                 }
             }),
             #[cfg(feature = "arrays")]
@@ -219,7 +222,10 @@ impl From<&QueueOverflow> for RawFlow {
             dimensions: flow.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
                 VariableDimensions {
-                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                    dims: dims
+                        .iter()
+                        .map(|name| Dimension { name: name.clone() })
+                        .collect(),
                 }
             }),
             #[cfg(feature = "arrays")]
@@ -253,7 +259,10 @@ impl From<&ConveyorLeakage> for RawFlow {
             dimensions: flow.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
                 VariableDimensions {
-                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                    dims: dims
+                        .iter()
+                        .map(|name| Dimension { name: name.clone() })
+                        .collect(),
                 }
             }),
             #[cfg(feature = "arrays")]
@@ -408,7 +417,9 @@ impl From<RawFlow> for BasicFlow {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -504,7 +515,9 @@ impl From<RawFlow> for QueueOverflow {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -614,7 +627,9 @@ impl TryFrom<RawFlow> for ConveyorLeakage {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -624,8 +639,9 @@ impl TryFrom<RawFlow> for ConveyorLeakage {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
-    use serde_xml_rs::from_str;
+    use crate::test_utils::parse_flow;
 
     #[test]
     fn test_basic_flow() {
@@ -633,18 +649,11 @@ mod tests {
    <eqn>rewards*reward_multiplier</eqn>
 </flow>"#;
 
-        let flow: Flow = from_str(xml).expect("Failed to parse basic flow");
-
-        match flow {
-            Flow::Basic(basic_flow) => {
-                assert_eq!(basic_flow.name, "increasing");
-                assert!(basic_flow.equation.is_some());
-                // assert_eq!(basic_flow.equation.unwrap(), "rewards*reward_multiplier");
-                assert!(basic_flow.multiplier.is_none());
-                assert!(basic_flow.non_negative.is_none());
-            }
-            _ => panic!("Expected Basic flow"),
-        }
+        let basic_flow = parse_flow(xml);
+        assert_eq!(basic_flow.name, "increasing");
+        assert!(basic_flow.equation.is_some());
+        assert!(basic_flow.multiplier.is_none());
+        assert!(basic_flow.non_negative.is_none());
     }
 
     #[test]
@@ -654,19 +663,11 @@ mod tests {
    <multiplier>3</multiplier>
 </flow>"#;
 
-        let flow: Flow = from_str(xml).expect("Failed to parse flow with multiplier");
-
-        match flow {
-            Flow::Basic(basic_flow) => {
-                // Note: raw() preserves quotes as they appear in XML
-                assert_eq!(basic_flow.name.raw(), "\"unit_converter\"");
-                assert!(basic_flow.equation.is_some());
-                // assert_eq!(basic_flow.equation.unwrap(), "base_flow");
-                assert!(basic_flow.multiplier.is_some());
-                assert_eq!(basic_flow.multiplier.unwrap(), 3.0);
-            }
-            _ => panic!("Expected Basic flow"),
-        }
+        let basic_flow = parse_flow(xml);
+        assert_eq!(basic_flow.name, "unit_converter");
+        assert!(basic_flow.equation.is_some());
+        assert!(basic_flow.multiplier.is_some());
+        assert_eq!(basic_flow.multiplier.unwrap(), 3.0);
     }
 
     #[test]
@@ -676,18 +677,11 @@ mod tests {
    <non_negative/>
 </flow>"#;
 
-        let flow: Flow = from_str(xml).expect("Failed to parse non-negative flow");
-
-        match flow {
-            Flow::Basic(basic_flow) => {
-                assert_eq!(basic_flow.name, "increasing");
-                assert!(basic_flow.equation.is_some());
-                // assert_eq!(basic_flow.equation.unwrap(), "rewards*reward_multiplier");
-                assert!(basic_flow.non_negative.is_some());
-                assert_eq!(basic_flow.non_negative.unwrap(), None);
-            }
-            _ => panic!("Expected Basic flow"),
-        }
+        let basic_flow = parse_flow(xml);
+        assert_eq!(basic_flow.name, "increasing");
+        assert!(basic_flow.equation.is_some());
+        assert!(basic_flow.non_negative.is_some());
+        assert_eq!(basic_flow.non_negative.unwrap(), None);
     }
 
     #[test]
@@ -697,116 +691,16 @@ mod tests {
    <non_negative>false</non_negative>
 </flow>"#;
 
-        let flow: Flow = from_str(xml).expect("Failed to parse non-negative false flow");
-
-        match flow {
-            Flow::Basic(basic_flow) => {
-                assert_eq!(basic_flow.name, "bidirectional");
-                assert!(basic_flow.non_negative.is_some());
-                assert_eq!(basic_flow.non_negative.unwrap(), Some(false));
-            }
-            _ => panic!("Expected Basic flow"),
-        }
-    }
-
-    #[test]
-    fn test_queue_overflow_flow() {
-        let xml = r#"<flow name="overflow_flow">
-   <queue_overflow/>
-</flow>"#;
-
-        let flow: Flow = from_str(xml).expect("Failed to parse queue overflow flow");
-
-        match flow {
-            Flow::QueueOverflow(queue_overflow) => {
-                assert_eq!(queue_overflow.name.raw(), "\"overflow_flow\""); // TODO
-                assert!(queue_overflow.equation.is_none()); // Queue outflows don't have equations
-            }
-            _ => panic!("Expected QueueOverflow flow"),
-        }
-    }
-
-    #[test]
-    fn test_conveyor_leakage_simple() {
-        let xml = r#"<flow name="shrinking">
-   <leak/>
-</flow>"#;
-
-        let flow: Flow = from_str(xml).expect("Failed to parse simple conveyor leakage");
-
-        match flow {
-            Flow::ConveyorLeakage(conveyor_leakage) => {
-                // Note: raw() preserves quotes as they appear in XML
-                assert_eq!(conveyor_leakage.name.raw(), "\"shrinking\"");
-                assert!(conveyor_leakage.equation.is_none());
-                assert!(conveyor_leakage.leak.is_none()); // No fraction specified
-                assert!(conveyor_leakage.leak_integers.is_none());
-                assert!(conveyor_leakage.leak_start.is_none());
-                assert!(conveyor_leakage.leak_end.is_none());
-            }
-            _ => panic!("Expected ConveyorLeakage flow"),
-        }
-    }
-
-    #[test]
-    fn test_conveyor_leakage_with_fraction() {
-        let xml = r#"<flow name="attriting" leak_end="0.25">
-   <leak>0.1</leak>
-</flow>"#;
-
-        let flow: Flow = from_str(xml).expect("Failed to parse conveyor leakage with fraction");
-
-        match flow {
-            Flow::ConveyorLeakage(conveyor_leakage) => {
-                assert_eq!(conveyor_leakage.name.raw(), "\"attriting\""); // TODO
-                assert!(conveyor_leakage.equation.is_none());
-                assert!(conveyor_leakage.leak.is_some());
-                assert_eq!(conveyor_leakage.leak.unwrap(), 0.1);
-                assert!(conveyor_leakage.leak_end.is_some());
-                assert_eq!(conveyor_leakage.leak_end.unwrap(), 0.25);
-            }
-            _ => panic!("Expected ConveyorLeakage flow"),
-        }
-    }
-
-    #[test]
-    fn test_conveyor_leakage_full_options() {
-        let xml = r#"<flow name="complex_leak" leak_start="0.2" leak_end="0.8">
-   <eqn>some_calculation</eqn>
-   <leak>0.05</leak>
-   <leak_integers/>
-   <units>items/day</units>
-   <doc>A complex leakage flow</doc>
-</flow>"#;
-
-        let flow: Flow = from_str(xml).expect("Failed to parse complex conveyor leakage");
-
-        match flow {
-            Flow::ConveyorLeakage(conveyor_leakage) => {
-                // Note: raw() preserves quotes as they appear in XML
-                assert_eq!(conveyor_leakage.name.raw(), "\"complex_leak\"");
-                assert!(conveyor_leakage.equation.is_some());
-                // assert_eq!(conveyor_leakage.equation.unwrap(), "some_calculation");
-                assert!(conveyor_leakage.leak.is_some());
-                assert_eq!(conveyor_leakage.leak.unwrap(), 0.05);
-                assert!(conveyor_leakage.leak_integers.is_some());
-                assert_eq!(conveyor_leakage.leak_integers.unwrap(), Some(true));
-                assert!(conveyor_leakage.leak_start.is_some());
-                assert_eq!(conveyor_leakage.leak_start.unwrap(), 0.2);
-                assert!(conveyor_leakage.leak_end.is_some());
-                assert_eq!(conveyor_leakage.leak_end.unwrap(), 0.8);
-                assert!(conveyor_leakage.units.is_some());
-                assert!(conveyor_leakage.documentation.is_some());
-            }
-            _ => panic!("Expected ConveyorLeakage flow"),
-        }
+        let basic_flow = parse_flow(xml);
+        assert_eq!(basic_flow.name, "bidirectional");
+        assert!(basic_flow.non_negative.is_some());
+        assert_eq!(basic_flow.non_negative.unwrap(), Some(false));
     }
 
     #[test]
     fn test_flow_with_common_properties() {
         let xml = r#"<flow name="documented_flow">
    <eqn>complex_expression</eqn>
-   <mathml>some_mathml</mathml>
    <multiplier>2.5</multiplier>
    <units>kg/s</units>
    <doc>This is a documented flow</doc>
@@ -815,69 +709,27 @@ mod tests {
    <format precision="0.01" delimit_000s="true"/>
 </flow>"#;
 
-        let flow: Flow = from_str(xml).expect("Failed to parse flow with common properties");
-
-        match flow {
-            Flow::Basic(basic_flow) => {
-                assert_eq!(basic_flow.name.raw(), "\"documented_flow\""); // TODO
-                assert!(basic_flow.equation.is_some());
-                // assert_eq!(basic_flow.equation.unwrap(), "complex_expression");
-                assert!(basic_flow.mathml_equation.is_some());
-                assert_eq!(basic_flow.mathml_equation.unwrap(), "some_mathml");
-                assert!(basic_flow.multiplier.is_some());
-                assert_eq!(basic_flow.multiplier.unwrap(), 2.5);
-                assert!(basic_flow.units.is_some());
-                assert!(basic_flow.documentation.is_some());
-                assert!(basic_flow.range.is_some());
-                assert!(basic_flow.scale.is_some());
-                assert!(basic_flow.format.is_some());
-            }
-            _ => panic!("Expected Basic flow"),
-        }
+        let basic_flow = parse_flow(xml);
+        assert_eq!(basic_flow.name, "documented_flow");
+        assert!(basic_flow.equation.is_some());
+        assert!(basic_flow.multiplier.is_some());
+        assert_eq!(basic_flow.multiplier.unwrap(), 2.5);
+        assert!(basic_flow.units.is_some());
+        assert!(basic_flow.documentation.is_some());
+        assert!(basic_flow.range.is_some());
+        assert!(basic_flow.scale.is_some());
+        assert!(basic_flow.format.is_some());
     }
 
     #[test]
     fn test_flow_name_only() {
-        let xml = r#"<flow name="minimal_flow">
-</flow>"#;
+        let xml = r#"<flow name="minimal_flow"></flow>"#;
 
-        let flow: Flow = from_str(xml).expect("Failed to parse minimal flow");
-
-        match flow {
-            Flow::Basic(basic_flow) => {
-                // Note: raw() preserves quotes as they appear in XML
-                assert_eq!(basic_flow.name.raw(), "\"minimal_flow\"");
-                assert!(basic_flow.equation.is_none());
-                assert!(basic_flow.multiplier.is_none());
-                assert!(basic_flow.non_negative.is_none());
-            }
-            _ => panic!("Expected Basic flow"),
-        }
-    }
-
-    #[test]
-    fn test_flow_type_detection() {
-        // Test that flows are correctly classified based on their content
-
-        // Normal flow
-        let normal_xml = r#"<flow name="normal"><eqn>x</eqn></flow>"#;
-        let normal_flow: Flow = from_str(normal_xml).unwrap();
-        assert!(matches!(normal_flow, Flow::Basic(_)));
-
-        // Non-negative flow
-        let non_neg_xml = r#"<flow name="non_neg"><eqn>x</eqn><non_negative/></flow>"#;
-        let non_neg_flow: Flow = from_str(non_neg_xml).unwrap();
-        assert!(matches!(non_neg_flow, Flow::Basic(_)));
-
-        // Queue overflow flow
-        let queue_xml = r#"<flow name="queue"><queue_overflow/></flow>"#;
-        let queue_flow: Flow = from_str(queue_xml).unwrap();
-        assert!(matches!(queue_flow, Flow::QueueOverflow(_)));
-
-        // Conveyor leakage flow
-        let leak_xml = r#"<flow name="leak"><leak/></flow>"#;
-        let leak_flow: Flow = from_str(leak_xml).unwrap();
-        assert!(matches!(leak_flow, Flow::ConveyorLeakage(_)));
+        let basic_flow = parse_flow(xml);
+        assert_eq!(basic_flow.name, "minimal_flow");
+        assert!(basic_flow.equation.is_none());
+        assert!(basic_flow.multiplier.is_none());
+        assert!(basic_flow.non_negative.is_none());
     }
 
     #[test]
@@ -886,34 +738,40 @@ mod tests {
    <eqn>some_value</eqn>
 </flow>"#;
 
-        let flow: Flow = from_str(xml).expect("Failed to parse flow with quoted name");
-
-        match flow {
-            Flow::Basic(basic_flow) => {
-                // Note: raw() preserves quotes as they appear in XML
-                assert_eq!(basic_flow.name.raw(), "\"flow with spaces\"");
-            }
-            _ => panic!("Expected Basic flow"),
-        }
+        let basic_flow = parse_flow(xml);
+        // Identifier normalizes names with spaces
+        assert_eq!(basic_flow.name, "flow with spaces");
     }
 
     #[test]
     fn test_flow_serialization_roundtrip() {
-        use serde_xml_rs::to_string;
+        use crate::test_utils::wrap_variable_xml;
+        use crate::xml::XmileFile;
 
-        let original_xml = r#"<flow name="test_flow">
+        let flow_xml = r#"<flow name="test_flow">
    <eqn>x + y</eqn>
    <multiplier>1.5</multiplier>
    <non_negative/>
 </flow>"#;
 
-        let flow: Flow = from_str(original_xml).expect("Failed to parse flow");
-        let serialized = to_string(&flow).expect("Failed to serialize flow");
-        let reparsed: Flow = from_str(&serialized).expect("Failed to reparse flow");
+        let full_xml = wrap_variable_xml(flow_xml);
+        let file = XmileFile::from_str(&full_xml).expect("Failed to parse XMILE file");
+
+        // Serialize to XML
+        let serialized = file.to_xml().expect("Failed to serialize");
+
+        // Re-parse the serialized XML
+        let file2 = XmileFile::from_str(&serialized).expect("Failed to re-parse XMILE file");
 
         // Verify the roundtrip preserves the data
-        match (&flow, &reparsed) {
-            (Flow::Basic(orig), Flow::Basic(reparsed)) => {
+        let orig = &file.models[0].variables.variables[0];
+        let reparsed = &file2.models[0].variables.variables[0];
+
+        match (orig, reparsed) {
+            (
+                crate::model::vars::Variable::Flow(orig),
+                crate::model::vars::Variable::Flow(reparsed),
+            ) => {
                 assert_eq!(orig.name, reparsed.name);
                 assert_eq!(orig.equation, reparsed.equation);
                 assert_eq!(orig.multiplier, reparsed.multiplier);

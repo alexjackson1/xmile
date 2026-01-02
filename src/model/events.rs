@@ -84,7 +84,7 @@ impl Validate for EventPoster {
     fn validate(&self) -> ValidationResult {
         let warnings = Vec::new();
         let mut errors = Vec::new();
-        
+
         // Validate min <= max
         if self.min > self.max {
             errors.push(format!(
@@ -92,7 +92,7 @@ impl Validate for EventPoster {
                 self.min, self.max
             ));
         }
-        
+
         // Validate thresholds
         for (idx, threshold) in self.thresholds.iter().enumerate() {
             match threshold.validate() {
@@ -112,7 +112,7 @@ impl Validate for EventPoster {
                 }
             }
         }
-        
+
         // Validate that each threshold has a unique (value, direction) combination
         // Use string key since f64 doesn't implement Hash
         let mut seen_combinations = HashSet::new();
@@ -127,7 +127,7 @@ impl Validate for EventPoster {
                 ));
             }
         }
-        
+
         if errors.is_empty() {
             ValidationResult::Valid(())
         } else {
@@ -140,7 +140,7 @@ impl Validate for Threshold {
     fn validate(&self) -> ValidationResult {
         let warnings = Vec::new();
         let mut errors = Vec::new();
-        
+
         // Validate direction if present
         if let Some(ref dir) = self.direction {
             if !VALID_DIRECTIONS.contains(&dir.as_str()) {
@@ -150,7 +150,7 @@ impl Validate for Threshold {
                 ));
             }
         }
-        
+
         // Validate repeat if present
         if let Some(ref repeat) = self.repeat {
             if !VALID_REPEAT.contains(&repeat.as_str()) {
@@ -160,7 +160,7 @@ impl Validate for Threshold {
                 ));
             }
         }
-        
+
         // Validate that if repeat="each", there must be exactly one event
         let repeat_value = self.repeat.as_deref().unwrap_or("each");
         if repeat_value == "each" && self.events.len() != 1 {
@@ -169,7 +169,7 @@ impl Validate for Threshold {
                 self.events.len()
             ));
         }
-        
+
         // Validate events
         for (idx, event) in self.events.iter().enumerate() {
             match event.validate() {
@@ -189,12 +189,12 @@ impl Validate for Threshold {
                 }
             }
         }
-        
+
         // Validate that threshold has at least one event
         if self.events.is_empty() {
             errors.push("Threshold must have at least one event".to_string());
         }
-        
+
         if errors.is_empty() {
             ValidationResult::Valid(())
         } else {
@@ -207,7 +207,7 @@ impl Validate for Event {
     fn validate(&self) -> ValidationResult {
         let warnings = Vec::new();
         let mut errors = Vec::new();
-        
+
         // Validate sim_action if present
         if let Some(ref action) = self.sim_action {
             if !VALID_SIM_ACTIONS.contains(&action.as_str()) {
@@ -217,7 +217,7 @@ impl Validate for Event {
                 ));
             }
         }
-        
+
         if errors.is_empty() {
             ValidationResult::Valid(())
         } else {
@@ -237,10 +237,14 @@ mod tests {
             max: 5.0, // Invalid: min > max
             thresholds: vec![],
         };
-        
+
         match poster.validate() {
             ValidationResult::Invalid(_, errors) => {
-                assert!(errors.iter().any(|e| e.contains("min") && e.contains("max")));
+                assert!(
+                    errors
+                        .iter()
+                        .any(|e| e.contains("min") && e.contains("max"))
+                );
             }
             _ => panic!("Expected validation error for min > max"),
         }
@@ -274,7 +278,7 @@ mod tests {
                 },
             ],
         };
-        
+
         match poster.validate() {
             ValidationResult::Invalid(_, errors) => {
                 assert!(errors.iter().any(|e| e.contains("Duplicate threshold")));
@@ -311,7 +315,7 @@ mod tests {
                 },
             ],
         };
-        
+
         // Should be valid - same value but different directions
         assert!(poster.validate().is_valid());
     }
@@ -334,10 +338,14 @@ mod tests {
                 },
             ],
         };
-        
+
         match threshold.validate() {
             ValidationResult::Invalid(_, errors) => {
-                assert!(errors.iter().any(|e| e.contains("repeat='each'") && e.contains("exactly one event")));
+                assert!(
+                    errors
+                        .iter()
+                        .any(|e| e.contains("repeat='each'") && e.contains("exactly one event"))
+                );
             }
             _ => panic!("Expected validation error for repeat='each' with multiple events"),
         }
@@ -349,7 +357,7 @@ mod tests {
             sim_action: Some("invalid_action".to_string()),
             actions: vec![],
         };
-        
+
         match event.validate() {
             ValidationResult::Invalid(_, errors) => {
                 assert!(errors.iter().any(|e| e.contains("Invalid sim_action")));
@@ -367,7 +375,7 @@ mod tests {
             interval: None,
             events: vec![], // No events
         };
-        
+
         match threshold.validate() {
             ValidationResult::Invalid(_, errors) => {
                 assert!(errors.iter().any(|e| e.contains("at least one event")));

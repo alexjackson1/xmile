@@ -17,7 +17,7 @@ fn test_behavior_global_non_negative() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     assert!(file.behavior.is_some());
     let behavior = file.behavior.as_ref().unwrap();
     assert_eq!(behavior.global.non_negative, Some(true));
@@ -43,7 +43,7 @@ fn test_behavior_entity_specific() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     assert!(file.behavior.is_some());
     let behavior = file.behavior.as_ref().unwrap();
     assert_eq!(behavior.global.non_negative, None);
@@ -72,7 +72,7 @@ fn test_behavior_mixed() {
     </xmile>
     "#;
 
-    let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
+    let file = XmileFile::from_str(xml).expect("Failed to parse XML");
     assert!(file.behavior.is_some());
     let behavior = file.behavior.as_ref().unwrap();
     assert_eq!(behavior.global.non_negative, Some(true));

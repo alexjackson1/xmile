@@ -46,9 +46,7 @@ pub struct EntityBehavior {
 
 impl Default for EntityBehavior {
     fn default() -> Self {
-        EntityBehavior {
-            non_negative: None,
-        }
+        EntityBehavior { non_negative: None }
     }
 }
 
@@ -98,13 +96,13 @@ impl<'de> Deserialize<'de> for Behavior {
         D: Deserializer<'de>,
     {
         let raw: RawBehavior = Deserialize::deserialize(deserializer)?;
-        
+
         let global = EntityBehavior {
             non_negative: raw.non_negative.map(|nn| nn.value),
         };
-        
+
         let mut entities = Vec::new();
-        
+
         if let Some(stock) = raw.stock {
             entities.push(EntityBehaviorEntry {
                 entity_type: "stock".to_string(),
@@ -113,7 +111,7 @@ impl<'de> Deserialize<'de> for Behavior {
                 },
             });
         }
-        
+
         if let Some(flow) = raw.flow {
             entities.push(EntityBehaviorEntry {
                 entity_type: "flow".to_string(),
@@ -122,7 +120,7 @@ impl<'de> Deserialize<'de> for Behavior {
                 },
             });
         }
-        
+
         if let Some(aux) = raw.aux {
             entities.push(EntityBehaviorEntry {
                 entity_type: "aux".to_string(),
@@ -131,7 +129,7 @@ impl<'de> Deserialize<'de> for Behavior {
                 },
             });
         }
-        
+
         if let Some(gf) = raw.gf {
             entities.push(EntityBehaviorEntry {
                 entity_type: "gf".to_string(),
@@ -140,11 +138,8 @@ impl<'de> Deserialize<'de> for Behavior {
                 },
             });
         }
-        
-        Ok(Behavior {
-            global,
-            entities,
-        })
+
+        Ok(Behavior { global, entities })
     }
 }
 
@@ -155,13 +150,13 @@ impl Serialize for Behavior {
     {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("behavior", 5)?;
-        
+
         if let Some(nn) = self.global.non_negative {
             if nn {
                 state.serialize_field("non_negative", &NonNegativeFlag { value: true })?;
             }
         }
-        
+
         for entry in &self.entities {
             match entry.entity_type.as_str() {
                 "stock" => {
@@ -203,14 +198,14 @@ impl Serialize for Behavior {
                 _ => {}
             }
         }
-        
+
         state.end()
     }
 }
 
 impl Behavior {
     /// Resolves behavior for a specific entity type using cascading rules.
-    /// 
+    ///
     /// The behavior information cascades across four levels from the entity outwards,
     /// with the actual entity behavior defined by the first occurrence of a behavior
     /// definition for that behavior property:
@@ -218,16 +213,16 @@ impl Behavior {
     /// 2. Behaviors for all entities in a model (passed as `model_behavior`)
     /// 3. Behaviors for all entities in all models in the file (passed as `file_behavior`)
     /// 4. Default XMILE-defined behaviors (hardcoded defaults)
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `entity_type` - The type of entity ("stock", "flow", "aux", "gf")
     /// * `entity_behavior` - Optional behavior defined directly on the entity
     /// * `model_behavior` - Optional behavior defined at the model level
     /// * `file_behavior` - Optional behavior defined at the file level
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The resolved `EntityBehavior` with values from the first level that defines them.
     pub fn resolve_for_entity(
         entity_type: &str,
@@ -239,7 +234,7 @@ impl Behavior {
         if let Some(eb) = entity_behavior {
             return eb.clone();
         }
-        
+
         // Level 2: Model-level behavior for this entity type
         if let Some(mb) = model_behavior {
             // Check for entity-specific behavior in model
@@ -251,7 +246,7 @@ impl Behavior {
                 return mb.global.clone();
             }
         }
-        
+
         // Level 3: File-level behavior for this entity type
         if let Some(fb) = file_behavior {
             // Check for entity-specific behavior in file
@@ -263,15 +258,15 @@ impl Behavior {
                 return fb.global.clone();
             }
         }
-        
+
         // Level 4: Default XMILE-defined behaviors
         // Currently, there are no default behaviors specified in the XMILE spec
         // for non_negative, so we return the default (None)
         EntityBehavior::default()
     }
-    
+
     /// Gets behavior for a specific entity type from this behavior block.
-    /// 
+    ///
     /// Returns entity-specific behavior if present, otherwise global behavior.
     pub fn get_for_entity_type(&self, entity_type: &str) -> EntityBehavior {
         // First check for entity-specific behavior
@@ -286,7 +281,7 @@ impl Behavior {
 
 impl EntityBehavior {
     /// Merges this behavior with another, with `other` taking precedence.
-    /// 
+    ///
     /// Values from `other` override values in `self` when `other` has `Some`.
     pub fn merge(&self, other: &EntityBehavior) -> EntityBehavior {
         EntityBehavior {
@@ -299,7 +294,7 @@ impl Validate for Behavior {
     fn validate(&self) -> ValidationResult {
         let warnings = Vec::new();
         let mut errors = Vec::new();
-        
+
         // Validate entity types are valid
         let valid_entity_types = ["stock", "flow", "aux", "gf"];
         for entry in &self.entities {
@@ -310,7 +305,7 @@ impl Validate for Behavior {
                 ));
             }
         }
-        
+
         // Check for duplicate entity type entries
         let mut seen_types = std::collections::HashSet::new();
         for entry in &self.entities {
@@ -321,7 +316,7 @@ impl Validate for Behavior {
                 ));
             }
         }
-        
+
         if errors.is_empty() {
             ValidationResult::Valid(())
         } else {
@@ -348,21 +343,25 @@ mod tests {
             non_negative: Some(true),
         };
         let model_behavior = Behavior {
-            global: EntityBehavior { non_negative: Some(false) },
+            global: EntityBehavior {
+                non_negative: Some(false),
+            },
             entities: vec![],
         };
         let file_behavior = Behavior {
-            global: EntityBehavior { non_negative: Some(false) },
+            global: EntityBehavior {
+                non_negative: Some(false),
+            },
             entities: vec![],
         };
-        
+
         let resolved = Behavior::resolve_for_entity(
             "stock",
             Some(&entity_behavior),
             Some(&model_behavior),
             Some(&file_behavior),
         );
-        
+
         // Entity behavior should take precedence
         assert_eq!(resolved.non_negative, Some(true));
     }
@@ -370,21 +369,25 @@ mod tests {
     #[test]
     fn test_behavior_cascading_model_second() {
         let model_behavior = Behavior {
-            global: EntityBehavior { non_negative: Some(true) },
+            global: EntityBehavior {
+                non_negative: Some(true),
+            },
             entities: vec![],
         };
         let file_behavior = Behavior {
-            global: EntityBehavior { non_negative: Some(false) },
+            global: EntityBehavior {
+                non_negative: Some(false),
+            },
             entities: vec![],
         };
-        
+
         let resolved = Behavior::resolve_for_entity(
             "stock",
             None,
             Some(&model_behavior),
             Some(&file_behavior),
         );
-        
+
         // Model behavior should take precedence over file
         assert_eq!(resolved.non_negative, Some(true));
     }
@@ -392,17 +395,14 @@ mod tests {
     #[test]
     fn test_behavior_cascading_file_third() {
         let file_behavior = Behavior {
-            global: EntityBehavior { non_negative: Some(true) },
+            global: EntityBehavior {
+                non_negative: Some(true),
+            },
             entities: vec![],
         };
-        
-        let resolved = Behavior::resolve_for_entity(
-            "stock",
-            None,
-            None,
-            Some(&file_behavior),
-        );
-        
+
+        let resolved = Behavior::resolve_for_entity("stock", None, None, Some(&file_behavior));
+
         // File behavior should be used
         assert_eq!(resolved.non_negative, Some(true));
     }
@@ -410,33 +410,27 @@ mod tests {
     #[test]
     fn test_behavior_cascading_entity_specific() {
         let model_behavior = Behavior {
-            global: EntityBehavior { non_negative: Some(false) },
+            global: EntityBehavior {
+                non_negative: Some(false),
+            },
             entities: vec![EntityBehaviorEntry {
                 entity_type: "stock".to_string(),
-                behavior: EntityBehavior { non_negative: Some(true) },
+                behavior: EntityBehavior {
+                    non_negative: Some(true),
+                },
             }],
         };
-        
-        let resolved = Behavior::resolve_for_entity(
-            "stock",
-            None,
-            Some(&model_behavior),
-            None,
-        );
-        
+
+        let resolved = Behavior::resolve_for_entity("stock", None, Some(&model_behavior), None);
+
         // Entity-specific behavior in model should take precedence over global
         assert_eq!(resolved.non_negative, Some(true));
     }
 
     #[test]
     fn test_behavior_default() {
-        let resolved = Behavior::resolve_for_entity(
-            "stock",
-            None,
-            None,
-            None,
-        );
-        
+        let resolved = Behavior::resolve_for_entity("stock", None, None, None);
+
         // Should return default (None for non_negative)
         assert_eq!(resolved.non_negative, None);
     }
@@ -449,7 +443,7 @@ mod tests {
         let other = EntityBehavior {
             non_negative: Some(true),
         };
-        
+
         let merged = base.merge(&other);
         assert_eq!(merged.non_negative, Some(true));
     }
@@ -459,10 +453,8 @@ mod tests {
         let base = EntityBehavior {
             non_negative: Some(true),
         };
-        let other = EntityBehavior {
-            non_negative: None,
-        };
-        
+        let other = EntityBehavior { non_negative: None };
+
         let merged = base.merge(&other);
         assert_eq!(merged.non_negative, Some(true));
     }

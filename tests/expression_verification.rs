@@ -1,5 +1,5 @@
 //! Comprehensive tests for Phase 5.4: Expression Parser Verification
-//! 
+//!
 //! Tests cover:
 //! - All XMILE built-in functions
 //! - Macro calls in expressions
@@ -8,9 +8,9 @@
 //! - Submodel variable access (module.variable syntax)
 //! - Quoted identifiers with spaces
 
-use xmile::equation::parse::expression;
 use xmile::Expression;
 use xmile::equation::expression::function::FunctionTarget;
+use xmile::equation::parse::expression;
 
 /// Test all XMILE built-in functions are recognized
 #[test]
@@ -43,7 +43,7 @@ fn test_builtin_functions_recognized() {
     test_function_parses("MEAN(1, 2, 3)", "mean");
     test_function_parses("MEDIAN(1, 2, 3)", "median");
     test_function_parses("STDDEV(1, 2, 3)", "stddev");
-    
+
     // Time and delay functions
     test_function_parses("TIME", "time");
     test_function_parses("DT", "dt");
@@ -53,11 +53,14 @@ fn test_builtin_functions_recognized() {
     test_function_parses("DELAY(input, delay_time)", "delay");
     test_function_parses("DELAY1(input, delay_time)", "delay1");
     test_function_parses("DELAY3(input, delay_time)", "delay3");
-    
+
     // Logic and conditional functions
-    test_function_parses("IF_THEN_ELSE(condition, then_val, else_val)", "if_then_else");
+    test_function_parses(
+        "IF_THEN_ELSE(condition, then_val, else_val)",
+        "if_then_else",
+    );
     test_function_parses("PULSE_TRAIN(start, interval, end)", "pulse_train");
-    
+
     // Array and lookup functions
     test_function_parses("LOOKUP(x, points)", "lookup");
     test_function_parses("WITH_LOOKUP(x, points)", "with_lookup");
@@ -74,7 +77,7 @@ fn test_function_parses(expr_str: &str, expected_name: &str) {
                 expr_str,
                 remaining
             );
-            
+
             // Functions without parameters (like TIME, DT) are parsed as identifiers
             // Functions with parameters are parsed as FunctionCall
             match expr {
@@ -153,7 +156,7 @@ fn test_function_calls_with_parameters() {
         ("ATAN2(1, 2)", 2),
         ("POW(2, 3)", 2),
     ];
-    
+
     for (expr_str, expected_param_count) in test_cases {
         let result = expression(expr_str);
         match result {
@@ -184,7 +187,7 @@ fn test_quoted_identifiers_comprehensive() {
         r#"("Variable Name" - "Other Variable") / "Constant""#,
         r#"ABS("Variable Name")"#,
     ];
-    
+
     for expr_str in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -205,7 +208,7 @@ fn test_qualified_identifiers() {
         "module.variable + 10",
         "ABS(submodel.value)",
     ];
-    
+
     for expr_str in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -213,7 +216,7 @@ fn test_qualified_identifiers() {
             "Should parse qualified identifier: '{}'",
             expr_str
         );
-        
+
         // Verify the expression parses successfully
         // Qualified identifiers are handled by the Identifier parser
         // and will be marked as qualified when accessed
@@ -236,7 +239,7 @@ fn test_container_functions() {
         "MIN(container[1], container[2])",
         "MAX(container[i])",
     ];
-    
+
     for expr_str in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -248,20 +251,20 @@ fn test_container_functions() {
 }
 
 /// Test macro calls in expressions
-/// 
+///
 /// Note: The parser currently treats macro calls as regular function calls.
 /// To fully support macros, we would need to:
 /// 1. Parse macro definitions from the XMILE file
 /// 2. Resolve macro names at parse time to distinguish them from built-in functions
 /// 3. Validate macro parameter counts match definitions
-/// 
+///
 /// For now, we verify that macro-like calls parse correctly as function calls.
 #[test]
 fn test_macro_calls() {
     // Macros are called like functions: macro_name(param1, param2, ...)
     // The parser will treat these as FunctionTarget::Function calls
     // Full macro resolution requires macro definitions to be available
-    
+
     let test_cases = vec![
         "my_macro(10)",
         "my_macro(x, y)",
@@ -272,7 +275,7 @@ fn test_macro_calls() {
         "ABS(my_macro(value))",
         "my_macro(a) * my_macro(b)",
     ];
-    
+
     for expr_str in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -280,7 +283,7 @@ fn test_macro_calls() {
             "Should parse macro call expression: '{}'",
             expr_str
         );
-        
+
         // Verify it's parsed as a function call
         if let Ok((_, expr)) = result {
             match expr {
@@ -312,19 +315,19 @@ fn test_macro_calls() {
 }
 
 /// Test graphical function calls
-/// 
+///
 /// Note: The parser currently treats graphical function calls as regular function calls.
 /// To fully support graphical functions, we would need to:
 /// 1. Parse graphical function definitions from the XMILE file
 /// 2. Resolve graphical function names at parse time
 /// 3. Validate that graphical functions are called with a single parameter (the x-value)
-/// 
+///
 /// For now, we verify that graphical function-like calls parse correctly.
 #[test]
 fn test_graphical_function_calls() {
     // Graphical functions are called like: gf_name(x_value)
     // They take a single parameter (the x-value to look up)
-    
+
     let test_cases = vec![
         "cost_f(2003)",
         "lookup_table(10.5)",
@@ -334,7 +337,7 @@ fn test_graphical_function_calls() {
         "ABS(cost_f(value))",
         "cost_f(time) + offset",
     ];
-    
+
     for expr_str in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -342,7 +345,7 @@ fn test_graphical_function_calls() {
             "Should parse graphical function call: '{}'",
             expr_str
         );
-        
+
         // Verify it's parsed as a function call
         if let Ok((_, expr)) = result {
             match expr {
@@ -360,7 +363,7 @@ fn test_graphical_function_calls() {
                             // Other targets are also acceptable
                         }
                     }
-                    
+
                     // Graphical functions typically take one parameter (x-value)
                     // But we don't enforce this at parse time
                     if parameters.len() == 1 {
@@ -382,13 +385,28 @@ fn test_graphical_function_calls() {
 #[test]
 fn test_complex_expressions() {
     let test_cases = vec![
-        (r#"ABS("Variable Name" - "Other Variable")"#, "Function with quoted identifiers"),
-        (r#"MIN("Var 1", "Var 2", "Var 3")"#, "Function with multiple quoted parameters"),
-        (r#"module.variable + "Local Variable""#, "Qualified identifier with quoted identifier"),
-        (r#"SUM(module.array[1], module.array[2])"#, "Function with qualified array subscripts"),
-        (r#"if "Condition" then "Then Value" else "Else Value""#, "If-then-else with quoted identifiers"),
+        (
+            r#"ABS("Variable Name" - "Other Variable")"#,
+            "Function with quoted identifiers",
+        ),
+        (
+            r#"MIN("Var 1", "Var 2", "Var 3")"#,
+            "Function with multiple quoted parameters",
+        ),
+        (
+            r#"module.variable + "Local Variable""#,
+            "Qualified identifier with quoted identifier",
+        ),
+        (
+            r#"SUM(module.array[1], module.array[2])"#,
+            "Function with qualified array subscripts",
+        ),
+        (
+            r#"if "Condition" then "Then Value" else "Else Value""#,
+            "If-then-else with quoted identifiers",
+        ),
     ];
-    
+
     for (expr_str, description) in test_cases {
         let result = expression(expr_str);
         if let Err(e) = result {
@@ -399,16 +417,22 @@ fn test_complex_expressions() {
             );
         }
     }
-    
+
     // Test cases that currently fail due to parser limitations
     // These are kept for future implementation but not asserted
     // TODO: Nested qualified identifiers (module.submodel.value) - parser only handles single-level qualification
     // See implementation plan for details
     let _ignored_cases = vec![
-        (r#"("Quoted Var" - module.submodel.value) / 10"#, "Nested qualified identifier in parentheses"),
-        (r#"("Quoted Var" - module.submodel.value)/10"#, "Nested qualified identifier without spacing"),
+        (
+            r#"("Quoted Var" - module.submodel.value) / 10"#,
+            "Nested qualified identifier in parentheses",
+        ),
+        (
+            r#"("Quoted Var" - module.submodel.value)/10"#,
+            "Nested qualified identifier without spacing",
+        ),
     ];
-    
+
     // These cases are documented but not tested until parser supports nested qualification
     // When support is added, move these to test_cases above
 }
@@ -417,7 +441,7 @@ fn test_complex_expressions() {
 #[test]
 fn test_function_case_insensitive() {
     let variants = vec!["abs", "ABS", "Abs", "aBs"];
-    
+
     for variant in variants {
         let expr_str = format!("{}(-5)", variant);
         let result = expression(&expr_str);
@@ -426,7 +450,7 @@ fn test_function_case_insensitive() {
             "Should parse function name in any case: '{}'",
             variant
         );
-        
+
         if let Ok((_, expr)) = result {
             if let Expression::FunctionCall { target, .. } = expr {
                 if let FunctionTarget::Function(id) = target {
@@ -445,7 +469,7 @@ fn test_function_case_insensitive() {
 #[test]
 fn test_functions_without_parameters() {
     let test_cases = vec!["TIME", "DT", "STARTTIME", "STOPTIME", "TIMESTEP"];
-    
+
     for expr_str in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -453,7 +477,7 @@ fn test_functions_without_parameters() {
             "Should parse function without parameters: '{}'",
             expr_str
         );
-        
+
         if let Ok((_, expr)) = result {
             match expr {
                 Expression::Subscript(id, params) if params.is_empty() => {
@@ -490,33 +514,33 @@ fn test_deeply_nested_expressions() {
     for _ in 0..20 {
         nested = format!("({})", nested);
     }
-    
+
     let result = expression(&nested);
     assert!(
         result.is_ok(),
         "Should parse deeply nested expression (20 levels)"
     );
-    
+
     // Test deeply nested function calls
     // Using 15 levels instead of 50 to avoid stack overflow
     let mut nested_func = "1".to_string();
     for _ in 0..15 {
         nested_func = format!("ABS({})", nested_func);
     }
-    
+
     let result = expression(&nested_func);
     assert!(
         result.is_ok(),
         "Should parse deeply nested function calls (15 levels)"
     );
-    
+
     // Test deeply nested arithmetic
     // Using 20 levels instead of 100 to avoid stack overflow
     let mut nested_arith = "1".to_string();
     for _ in 0..20 {
         nested_arith = format!("({} + 1)", nested_arith);
     }
-    
+
     let result = expression(&nested_arith);
     assert!(
         result.is_ok(),
@@ -531,27 +555,23 @@ fn test_many_parameters() {
     // Using 50 parameters instead of 100 to avoid potential stack issues
     let params = (1..=50).map(|i| i.to_string()).collect::<Vec<_>>();
     let func_call = format!("SUM({})", params.join(", "));
-    
+
     let result = expression(&func_call);
     assert!(
         result.is_ok(),
         "Should parse function call with 50 parameters"
     );
-    
+
     if let Ok((_, expr)) = result {
         if let Expression::FunctionCall { parameters, .. } = expr {
-            assert_eq!(
-                parameters.len(),
-                50,
-                "Function should have 50 parameters"
-            );
+            assert_eq!(parameters.len(), 50, "Function should have 50 parameters");
         }
     }
-    
+
     // Test with more parameters (but still reasonable)
     let params = (1..=100).map(|i| i.to_string()).collect::<Vec<_>>();
     let func_call = format!("MAX({})", params.join(", "));
-    
+
     let result = expression(&func_call);
     assert!(
         result.is_ok(),
@@ -563,27 +583,27 @@ fn test_many_parameters() {
 #[test]
 fn test_unicode_edge_cases() {
     use xmile::Identifier;
-    
+
     // Test various Unicode characters
     let unicode_cases = vec![
-        "变量",  // Chinese
-        "переменная",  // Cyrillic
-        "変数",  // Japanese
-        "متغير",  // Arabic
-        "משתנה",  // Hebrew
-        "αβγ",  // Greek
-        "🚀_test",  // Emoji
-        "test_🧪",  // Emoji at end
-        "测试_变量_123",  // Mixed Unicode
-        "café",  // Accented characters
-        "naïve",  // Accented characters
-        "résumé",  // Multiple accents
-        "Müller",  // German umlaut
-        "François",  // French cedilla
-        "北京",  // Chinese city name
-        "東京",  // Japanese city name
+        "变量",          // Chinese
+        "переменная",    // Cyrillic
+        "変数",          // Japanese
+        "متغير",         // Arabic
+        "משתנה",         // Hebrew
+        "αβγ",           // Greek
+        "🚀_test",       // Emoji
+        "test_🧪",       // Emoji at end
+        "测试_变量_123", // Mixed Unicode
+        "café",          // Accented characters
+        "naïve",         // Accented characters
+        "résumé",        // Multiple accents
+        "Müller",        // German umlaut
+        "François",      // French cedilla
+        "北京",          // Chinese city name
+        "東京",          // Japanese city name
     ];
-    
+
     for unicode_str in unicode_cases {
         // Test as unquoted identifier
         let id_result = Identifier::parse_default(unicode_str);
@@ -617,22 +637,22 @@ fn test_unicode_edge_cases() {
 #[test]
 fn test_unicode_normalization() {
     use xmile::Identifier;
-    
+
     // Test that different Unicode representations normalize correctly
     // e.g., é can be represented as U+00E9 (single character) or U+0065 U+0301 (e + combining acute)
     let cases = vec![
-        ("café", "cafe\u{0301}"),  // Precomposed vs decomposed
-        ("naïve", "naive\u{0308}"),  // Precomposed vs decomposed
+        ("café", "cafe\u{0301}"),   // Precomposed vs decomposed
+        ("naïve", "naive\u{0308}"), // Precomposed vs decomposed
     ];
-    
+
     for (precomposed, decomposed) in cases {
         let id1 = Identifier::parse_default(precomposed);
         let id2 = Identifier::parse_default(decomposed);
-        
+
         // Both should parse
         assert!(id1.is_ok(), "Should parse precomposed '{}'", precomposed);
         assert!(id2.is_ok(), "Should parse decomposed '{}'", decomposed);
-        
+
         // They should be equivalent
         if let (Ok(id1), Ok(id2)) = (id1, id2) {
             assert_eq!(
@@ -652,10 +672,16 @@ fn test_special_character_edge_cases() {
     // but they should work when used in operations
     let test_cases = vec![
         (r#""var with spaces" + 10"#, "quoted identifier with spaces"),
-        (r#""var with spaces" * 2"#, "quoted identifier in multiplication"),
-        (r#""var with !@#$%^&*() special chars" + 1"#, "quoted identifier with special chars"),
+        (
+            r#""var with spaces" * 2"#,
+            "quoted identifier in multiplication",
+        ),
+        (
+            r#""var with !@#$%^&*() special chars" + 1"#,
+            "quoted identifier with special chars",
+        ),
     ];
-    
+
     for (expr_str, description) in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -665,7 +691,7 @@ fn test_special_character_edge_cases() {
             description
         );
     }
-    
+
     // Test that quoted identifiers with escape sequences can be parsed
     // when used in Identifier::parse directly (not as standalone expressions)
     use xmile::Identifier;
@@ -675,8 +701,8 @@ fn test_special_character_edge_cases() {
         (r#""var\\with\\backslashes""#, "backslashes"),
         (r#""var\"with\"quotes""#, "quotes"),
     ];
-    
-    for (quoted_str, description) in escape_cases {
+
+    for (quoted_str, _description) in escape_cases {
         let result = Identifier::parse_default(quoted_str);
         // Some escape sequences might not be fully supported yet
         // We're checking they don't crash, but they might fail parsing
@@ -701,7 +727,7 @@ fn test_malformed_expressions() {
         ("ABS(", "Unclosed function call"),
         ("ABS(1,", "Incomplete function parameters"),
     ];
-    
+
     for (expr_str, _description) in malformed_cases {
         let result = expression(expr_str);
         // These should fail, but we're just checking they don't panic
@@ -715,22 +741,20 @@ fn test_malformed_expressions() {
 }
 
 /// Property-based test for expression round-trips
-/// 
+///
 /// This test uses proptest to generate random valid expressions
 /// and verifies they can be parsed and serialized correctly.
 #[test]
 fn test_expression_round_trip_property() {
     // Note: Full proptest integration would require proptest feature
     // For now, we test with manually generated edge cases
-    
+
     // Test numeric expressions with various formats
     let numeric_cases = vec![
-        "0", "1", "-1", "123", "-456",
-        "0.0", "1.5", "-2.5", "3.14159",
-        "1e10", "1E10", "1e-10", "1E-10",
-        "1.5e10", "1.5E10", "-1.5e-10",
+        "0", "1", "-1", "123", "-456", "0.0", "1.5", "-2.5", "3.14159", "1e10", "1E10", "1e-10",
+        "1E-10", "1.5e10", "1.5E10", "-1.5e-10",
     ];
-    
+
     for expr_str in numeric_cases {
         let result = expression(expr_str);
         assert!(
@@ -739,15 +763,21 @@ fn test_expression_round_trip_property() {
             expr_str
         );
     }
-    
+
     // Test arithmetic expressions with various operators
     let arithmetic_cases = vec![
-        "1 + 2", "1 - 2", "1 * 2", "1 / 2",
-        "1 + 2 + 3", "1 - 2 - 3",
-        "1 * 2 * 3", "1 / 2 / 3",
-        "1 + 2 * 3", "(1 + 2) * 3",
+        "1 + 2",
+        "1 - 2",
+        "1 * 2",
+        "1 / 2",
+        "1 + 2 + 3",
+        "1 - 2 - 3",
+        "1 * 2 * 3",
+        "1 / 2 / 3",
+        "1 + 2 * 3",
+        "(1 + 2) * 3",
     ];
-    
+
     for expr_str in arithmetic_cases {
         let result = expression(expr_str);
         assert!(
@@ -769,7 +799,7 @@ fn test_nested_qualified_identifiers() {
         "ABS(module.submodel.value)",
         "module1.submodel1.value1 + module2.submodel2.value2",
     ];
-    
+
     for expr_str in test_cases {
         let result = expression(expr_str);
         assert!(
@@ -777,7 +807,7 @@ fn test_nested_qualified_identifiers() {
             "Should parse nested qualified identifier: '{}'",
             expr_str
         );
-        
+
         // Verify the expression parses successfully
         if let Ok((remaining, _expr)) = result {
             assert!(
