@@ -4,7 +4,7 @@ pub mod array;
 #[cfg(feature = "arrays")]
 pub use array::ArrayRegistry;
 
-pub mod aux;
+pub mod auxiliary;
 pub mod flow;
 pub mod gf;
 pub mod stock;
@@ -17,7 +17,7 @@ use crate::{
     model::object::{Document, Object},
 };
 
-pub use aux::Auxiliary;
+pub use auxiliary::Auxiliary;
 pub use flow::BasicFlow;
 pub use gf::GraphicalFunction;
 use serde::{Deserialize, Serialize};
@@ -130,10 +130,12 @@ impl<'de> Deserialize<'de> for NonNegativeContent {
             #[serde(rename = "#text", default)]
             value: Option<bool>,
         }
-        
+
         // Try deserializing - if it fails due to missing #text, treat as empty tag (None)
         match Helper::deserialize(deserializer) {
-            Ok(helper) => Ok(NonNegativeContent { value: helper.value }),
+            Ok(helper) => Ok(NonNegativeContent {
+                value: helper.value,
+            }),
             Err(_) => {
                 // If deserialization fails (e.g., empty tag or missing #text),
                 // return None to match original behavior
