@@ -179,7 +179,7 @@ impl Serialize for DeviceScale {
     where
         S: serde::Serializer,
     {
-        let raw: RawDeviceScale = self.clone().into();
+        let raw: RawDeviceScale = (*self).into();
         raw.serialize(serializer)
     }
 }
@@ -201,16 +201,16 @@ impl Validate for FormatOptions {
         let warnings = Vec::new();
         let mut errors = Vec::new();
 
-        if let Some(precision) = self.precision {
-            if precision.is_sign_negative() {
-                errors.push("Precision cannot be negative.".to_string());
-            }
+        if let Some(precision) = self.precision
+            && precision.is_sign_negative()
+        {
+            errors.push("Precision cannot be negative.".to_string());
         }
 
-        if let Some(scale_by) = self.scale_by {
-            if scale_by.is_sign_negative() {
-                errors.push("Scale factor cannot be negative.".to_string());
-            }
+        if let Some(scale_by) = self.scale_by
+            && scale_by.is_sign_negative()
+        {
+            errors.push("Scale factor cannot be negative.".to_string());
         }
 
         if errors.is_empty() {

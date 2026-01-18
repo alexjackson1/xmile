@@ -29,6 +29,9 @@
 
 //     name – described in Section 5.1.1, but in short it is the local name of the model entity represented by this tag.
 
+/// Type alias for text padding (top, right, bottom, left)
+pub type TextPadding = Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>;
+
 // Additional attributes common to objects described in Sections 6.1.1 through 6.1.4:
 
 //     width, height – defined in Section 5.1.2
@@ -94,7 +97,7 @@ pub struct StockObject {
     pub text_align: Option<TextAlign>,
     pub text_background: Option<Color>,
     pub vertical_text_align: Option<VerticalTextAlign>,
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     pub font_color: Option<Color>,
     pub text_border_color: Option<Color>,
     pub text_border_width: Option<BorderWidth>,
@@ -158,7 +161,7 @@ pub struct FlowObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -217,7 +220,7 @@ pub struct AuxObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -274,7 +277,7 @@ pub struct ModuleObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -330,7 +333,7 @@ pub struct GroupObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -417,10 +420,10 @@ impl<'de> serde::Deserialize<'de> for Pointer {
                 M: serde::de::MapAccess<'de>,
             {
                 // Try to deserialize as an alias tag
-                if let Ok(Some((key, tag))) = map.next_entry::<String, AliasTag>() {
-                    if key == "alias" {
-                        return Ok(Pointer::Alias(tag.uid));
-                    }
+                if let Ok(Some((key, tag))) = map.next_entry::<String, AliasTag>()
+                    && key == "alias"
+                {
+                    return Ok(Pointer::Alias(tag.uid));
                 }
                 Err(de::Error::custom("Expected alias tag or text content"))
             }
@@ -493,7 +496,7 @@ pub struct ConnectorObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -556,7 +559,7 @@ pub struct AliasObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -672,7 +675,7 @@ struct RawSliderObject {
     #[serde(rename = "@vertical_text_align")]
     vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -750,7 +753,7 @@ pub struct SliderObject {
     pub text_align: Option<TextAlign>,
     pub text_background: Option<Color>,
     pub vertical_text_align: Option<VerticalTextAlign>,
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     pub font_color: Option<Color>,
     pub text_border_color: Option<Color>,
     pub text_border_width: Option<BorderWidth>,
@@ -781,7 +784,7 @@ impl serde::Serialize for SliderObject {
     {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("slider", 25)?;
-        
+
         state.serialize_field("@uid", &self.uid.value)?;
         state.serialize_field("@x", &self.x)?;
         state.serialize_field("@y", &self.y)?;
@@ -846,15 +849,26 @@ impl serde::Serialize for SliderObject {
         if !self.show_min_max {
             state.serialize_field("@show_min_max", &self.show_min_max)?;
         }
-        
+
         // Serialize entity tag
-        state.serialize_field("entity", &EntityTag { name: self.entity_name.clone() })?;
-        
+        state.serialize_field(
+            "entity",
+            &EntityTag {
+                name: self.entity_name.clone(),
+            },
+        )?;
+
         // Serialize reset_to if present
         if let Some((value, after)) = &self.reset_to {
-            state.serialize_field("reset_to", &ResetToTag { after: after.clone(), value: *value })?;
+            state.serialize_field(
+                "reset_to",
+                &ResetToTag {
+                    after: after.clone(),
+                    value: *value,
+                },
+            )?;
         }
-        
+
         state.end()
     }
 }
@@ -898,7 +912,7 @@ pub struct SwitchObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -969,7 +983,7 @@ pub struct OptionsObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1041,7 +1055,7 @@ pub struct NumericInputObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1099,7 +1113,7 @@ pub struct ListInputObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1152,7 +1166,7 @@ pub struct GraphicalInputObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1210,7 +1224,7 @@ pub struct NumericDisplayObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1267,7 +1281,7 @@ pub struct LampObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1323,7 +1337,7 @@ pub struct GaugeObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1401,7 +1415,7 @@ pub struct GraphObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1534,7 +1548,7 @@ pub struct TableObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1583,7 +1597,7 @@ pub struct TableObject {
     #[serde(rename = "@header_text_background")]
     pub header_text_background: Option<Color>,
     #[serde(rename = "@header_text_padding")]
-    pub header_text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub header_text_padding: TextPadding,
     #[serde(rename = "@header_font_color")]
     pub header_font_color: Option<Color>,
     #[serde(rename = "@header_text_border_color")]
@@ -1669,7 +1683,7 @@ pub struct TextBoxObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1726,7 +1740,7 @@ pub struct GraphicsFrameObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1803,7 +1817,7 @@ pub struct ButtonObject {
     #[serde(rename = "@vertical_text_align")]
     pub vertical_text_align: Option<VerticalTextAlign>,
     #[serde(rename = "@text_padding")]
-    pub text_padding: Option<(Option<f64>, Option<f64>, Option<f64>, Option<f64>)>,
+    pub text_padding: TextPadding,
     #[serde(rename = "@font_color")]
     pub font_color: Option<Color>,
     #[serde(rename = "@text_border_color")]
@@ -1844,7 +1858,7 @@ pub enum ButtonStyle {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PopupContent {
-    TextBox(TextBoxObject),
+    TextBox(Box<TextBoxObject>),
     Image(ImageContent),
     Video(VideoContent),
 }
@@ -1886,8 +1900,15 @@ pub enum LinkEffect {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LinkTarget {
-    View { view_type: String, order: String },
-    Page { view_type: String, order: String, page: String },
+    View {
+        view_type: String,
+        order: String,
+    },
+    Page {
+        view_type: String,
+        order: String,
+        page: String,
+    },
     NextPage,
     PreviousPage,
     HomePage,
@@ -1951,9 +1972,19 @@ pub enum RestoreAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DataAction {
     DataManager,
-    SaveDataNow { run_name: String },
-    ImportNow { resource: String, worksheet: Option<String>, all: bool },
-    ExportNow { resource: String, worksheet: Option<String>, all: bool },
+    SaveDataNow {
+        run_name: String,
+    },
+    ImportNow {
+        resource: String,
+        worksheet: Option<String>,
+        all: bool,
+    },
+    ExportNow {
+        resource: String,
+        worksheet: Option<String>,
+        all: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -42,7 +42,10 @@ fn test_parse_teacup_example() {
     let result = XmileFile::from_str(xml);
     // Note: This test may fail if Expression parsing has issues, but it verifies XML structure parsing
     if let Err(e) = &result {
-        eprintln!("XML parsing error (may be due to expression parsing): {:?}", e);
+        eprintln!(
+            "XML parsing error (may be due to expression parsing): {:?}",
+            e
+        );
         // For now, we'll just verify the error is about expression parsing, not XML structure
         let error_str = format!("{:?}", e);
         // If it's an expression parsing issue, that's acceptable - XML structure is correct
@@ -51,16 +54,23 @@ fn test_parse_teacup_example() {
             return;
         }
     }
-    assert!(result.is_ok(), "Failed to parse XMILE file structure: {:?}", result.err());
-    
+    assert!(
+        result.is_ok(),
+        "Failed to parse XMILE file structure: {:?}",
+        result.err()
+    );
+
     let xmile_file = result.unwrap();
     assert_eq!(xmile_file.version, "1.0");
-    assert_eq!(xmile_file.xmlns, "http://docs.oasis-open.org/xmile/ns/XMILE/v1.0");
+    assert_eq!(
+        xmile_file.xmlns,
+        "http://docs.oasis-open.org/xmile/ns/XMILE/v1.0"
+    );
     assert_eq!(xmile_file.header.vendor, "James Houghton");
     assert_eq!(xmile_file.header.product.version, "1.0");
     assert_eq!(xmile_file.header.product.name, "Hand Coded XMILE");
     assert_eq!(xmile_file.models.len(), 1);
-    
+
     let model = &xmile_file.models[0];
     assert_eq!(model.variables.variables.len(), 4);
 }
@@ -87,18 +97,18 @@ fn test_group_parsing() {
 
     let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
     let model = &file.models[0];
-    
+
     assert_eq!(model.variables.variables.len(), 1);
-    
+
     match &model.variables.variables[0] {
         xmile::model::vars::Variable::Group(group) => {
             // Identifier normalizes underscores to spaces
             assert_eq!(&group.name.to_string(), "Financial Sector");
             assert_eq!(group.entities.len(), 2);
             assert_eq!(&group.entities[0].name.to_string(), "Revenue");
-            assert_eq!(group.entities[0].run, false);
+            assert!(!group.entities[0].run);
             assert_eq!(&group.entities[1].name.to_string(), "Costs");
-            assert_eq!(group.entities[1].run, true);
+            assert!(group.entities[1].run);
             assert!(group.doc.is_some());
             if let Some(doc) = &group.doc {
                 match doc {

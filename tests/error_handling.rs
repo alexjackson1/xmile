@@ -1,5 +1,5 @@
 use xmile::xml::schema::XmileFile;
-use xmile::xml::{XmileError, ErrorContext};
+use xmile::xml::{ErrorContext, XmileError};
 
 #[test]
 fn test_enhanced_error_with_context() {
@@ -24,16 +24,22 @@ fn test_enhanced_error_with_context() {
 
     let result = XmileFile::from_str_with_context(xml);
     assert!(result.is_ok());
-    
+
     let file = result.unwrap();
     let validation_result = file.validate();
-    
+
     // Should have validation errors for duplicate variable names
     assert!(validation_result.is_err());
-    
-    if let Err(XmileError::Validation { message, errors, .. }) = validation_result {
-        assert!(!errors.is_empty());
-        assert!(message.contains("TestStock") || errors.iter().any(|e| e.contains("TestStock")));
+
+    if let Err(XmileError::Validation(validation_error)) = validation_result {
+        assert!(!validation_error.errors.is_empty());
+        assert!(
+            validation_error.message.contains("TestStock")
+                || validation_error
+                    .errors
+                    .iter()
+                    .any(|e| e.contains("TestStock"))
+        );
     } else {
         panic!("Expected Validation error");
     }
@@ -41,9 +47,8 @@ fn test_enhanced_error_with_context() {
 
 #[test]
 fn test_error_context_display() {
-    let context = ErrorContext::with_file_and_line("test.xmile", 42)
-        .with_parsing("stock variable");
-    
+    let context = ErrorContext::with_file_and_line("test.xmile", 42).with_parsing("stock variable");
+
     let error_msg = format!("{}", context);
     assert!(error_msg.contains("test.xmile"));
     assert!(error_msg.contains("line 42"));
@@ -53,26 +58,30 @@ fn test_error_context_display() {
 #[test]
 fn test_error_collection() {
     use xmile::xml::ErrorCollection;
-    
+
     let mut collection = ErrorCollection::new();
     assert!(collection.is_empty());
-    
-    collection.push(XmileError::Validation {
-        message: "Error 1".to_string(),
-        context: ErrorContext::new(),
-        warnings: Vec::new(),
-        errors: vec!["Error 1".to_string()],
-    });
-    
-    collection.push(XmileError::Validation {
-        message: "Error 2".to_string(),
-        context: ErrorContext::new(),
-        warnings: Vec::new(),
-        errors: vec!["Error 2".to_string()],
-    });
-    
+
+    collection.push(XmileError::Validation(Box::new(
+        xmile::xml::errors::ValidationError {
+            message: "Error 1".to_string(),
+            context: ErrorContext::new(),
+            warnings: Vec::new(),
+            errors: vec!["Error 1".to_string()],
+        },
+    )));
+
+    collection.push(XmileError::Validation(Box::new(
+        xmile::xml::errors::ValidationError {
+            message: "Error 2".to_string(),
+            context: ErrorContext::new(),
+            warnings: Vec::new(),
+            errors: vec!["Error 2".to_string()],
+        },
+    )));
+
     assert_eq!(collection.len(), 2);
-    
+
     let error = collection.into_error().unwrap();
     match error {
         XmileError::Multiple(errors) => {

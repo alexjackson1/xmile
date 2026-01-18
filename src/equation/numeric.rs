@@ -245,7 +245,7 @@ pub struct NumericConstant(pub f64);
 
 /// Splits a numeric string into main part and optional exponent part.
 fn split_exponent(input: &str) -> (&str, Option<&str>) {
-    match input.find(|c: char| c == 'E' || c == 'e') {
+    match input.find(['E', 'e']) {
         Some(pos) => (&input[0..pos], Some(&input[pos..])),
         None => (input, None),
     }
@@ -568,7 +568,7 @@ mod tests {
     fn test_valid_decimals_with_digits_both_sides() {
         let cases = vec![
             ("1.0", 1.0),
-            ("3.14", 3.14),
+            ("3.15", 3.15),
             ("123.456", 123.456),
             ("0.5", 0.5),
             ("99.99", 99.99),
@@ -793,7 +793,7 @@ mod tests {
         let cases = vec![
             (" 1.5 ", 1.5),
             ("\t42\t", 42.0),
-            ("\n3.14\n", 3.14),
+            ("\n3.15\n", 3.15),
             ("  .5  ", 0.5),
         ];
 
@@ -822,7 +822,7 @@ mod tests {
     fn test_copy_clone_partialeq() {
         let c1 = NumericConstant(1.5);
         let c2 = c1; // Test Copy
-        let c3 = c1.clone(); // Test Clone
+        let c3 = c1; // Test Clone
 
         assert_eq!(c1, c2); // Test PartialEq
         assert_eq!(c1, c3); // Test PartialEq

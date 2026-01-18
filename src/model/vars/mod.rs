@@ -40,7 +40,7 @@ pub enum AccessType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     Auxiliary(Auxiliary),
-    Stock(Stock),
+    Stock(Box<Stock>),
     Flow(BasicFlow),
     GraphicalFunction(GraphicalFunction),
     #[cfg(feature = "submodels")]

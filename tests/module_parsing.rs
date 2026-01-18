@@ -21,7 +21,7 @@ fn test_module_basic() {
     let file: XmileFile = serde_xml_rs::from_str(xml).expect("Failed to parse XML");
     let model = &file.models[0];
     assert_eq!(model.variables.variables.len(), 1);
-    
+
     match &model.variables.variables[0] {
         xmile::model::vars::Variable::Module(module) => {
             // Identifier may or may not normalize camelCase depending on parsing

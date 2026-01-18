@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use crate::{
     Expression, Identifier,
-    model::vars::{Variable, Var},
     model::vars::gf::GraphicalFunction,
+    model::vars::{Var, Variable},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -89,7 +89,7 @@ fn is_array_variable(var: &Variable) -> bool {
     {
         match var {
             Variable::Auxiliary(aux) => aux.dimensions.is_some(),
-            Variable::Stock(stock) => match stock {
+            Variable::Stock(stock) => match stock.as_ref() {
                 crate::model::vars::stock::Stock::Basic(b) => b.dimensions.is_some(),
                 crate::model::vars::stock::Stock::Conveyor(c) => c.dimensions.is_some(),
                 crate::model::vars::stock::Stock::Queue(q) => q.dimensions.is_some(),
@@ -111,7 +111,7 @@ fn is_array_variable(var: &Variable) -> bool {
 fn get_variable_name(var: &Variable) -> Option<&Identifier> {
     match var {
         Variable::Auxiliary(aux) => aux.name(),
-        Variable::Stock(stock) => match stock {
+        Variable::Stock(stock) => match stock.as_ref() {
             crate::model::vars::stock::Stock::Basic(b) => b.name(),
             crate::model::vars::stock::Stock::Conveyor(c) => c.name(),
             crate::model::vars::stock::Stock::Queue(q) => q.name(),

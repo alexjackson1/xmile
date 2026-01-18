@@ -33,7 +33,7 @@
 //! assert_eq!(ns, Namespace::Std);
 //!
 //! // Parse a namespace path
-//! let path = Namespace::from_str("user.custom.utils");
+//! let path = Namespace::from_parts_str("user.custom.utils");
 //! assert_eq!(path.len(), 3);
 //! assert_eq!(path[0], Namespace::User);
 //!
@@ -169,17 +169,15 @@ impl Namespace {
     /// ```rust
     /// use xmile::Namespace;
     ///
-    /// let path = Namespace::from_str("user.custom.utils");
+    /// let path = Namespace::from_parts_str("user.custom.utils");
     /// assert_eq!(path.len(), 3);
     /// assert_eq!(path[0], Namespace::User);
     /// assert_eq!(path[1], Namespace::Other("custom".to_string()));
     /// assert_eq!(path[2], Namespace::Other("utils".to_string()));
     /// ```
-    pub fn from_str(s: &str) -> Vec<Self> {
+    pub fn from_parts_str(s: &str) -> Vec<Self> {
         // Split the string by dot and parse each part
-        s.split('.')
-            .map(|part| Namespace::from_part(part))
-            .collect()
+        s.split('.').map(Namespace::from_part).collect()
     }
 
     /// Parses a single namespace component from a string.

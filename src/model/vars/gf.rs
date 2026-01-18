@@ -600,9 +600,9 @@ impl TryFrom<RawGraphicalFunction> for GraphicalFunction {
         let mathml_equation = raw.mathml_equation.clone();
         let units = raw.units.clone();
         let documentation = raw.documentation.clone();
-        let range = raw.range.clone();
-        let scale = raw.scale.clone();
-        let format = raw.format.clone();
+        let range = raw.range;
+        let scale = raw.scale;
+        let format = raw.format;
         #[cfg(feature = "arrays")]
         let elements = raw.elements.clone();
         #[cfg(feature = "arrays")]
@@ -666,9 +666,9 @@ impl From<&GraphicalFunction> for RawGraphicalFunction {
             mathml_equation: gf.mathml_equation.clone(),
             units: gf.units.clone(),
             documentation: gf.documentation.clone(),
-            range: gf.range.clone(),
-            scale: gf.scale.clone(),
-            format: gf.format.clone(),
+            range: gf.range,
+            scale: gf.scale,
+            format: gf.format,
             #[cfg(feature = "arrays")]
             dimensions: gf.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
@@ -727,7 +727,7 @@ impl Serialize for GraphicalFunction {
 }
 
 /// Registry for named graphical functions that maps function names to their definitions.
-/// 
+///
 /// This registry is used to resolve graphical function calls in expressions and validate
 /// that GF calls match their definitions (e.g., single parameter requirement).
 #[derive(Debug, Clone, Default)]
@@ -746,13 +746,13 @@ impl GraphicalFunctionRegistry {
 
     /// Builds a graphical function registry from a list of graphical functions.
     /// Only named graphical functions (those with a `name` field) are registered.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `functions` - A slice of graphical functions to register
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new `GraphicalFunctionRegistry` containing all named graphical functions.
     pub fn from_functions(functions: &[GraphicalFunction]) -> Self {
         let mut registry = GraphicalFunctionRegistry::new();
@@ -765,9 +765,9 @@ impl GraphicalFunctionRegistry {
     }
 
     /// Registers a named graphical function in the registry.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `name` - The identifier of the graphical function
     /// * `function` - The graphical function definition to register
     pub fn register(&mut self, name: Identifier, function: GraphicalFunction) {
@@ -775,26 +775,26 @@ impl GraphicalFunctionRegistry {
     }
 
     /// Looks up a graphical function by name.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `name` - The identifier of the graphical function to look up
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Some(&GraphicalFunction)` if the function is found, `None` otherwise.
     pub fn get(&self, name: &Identifier) -> Option<&GraphicalFunction> {
         self.functions.get(name)
     }
 
     /// Checks if a graphical function with the given name exists in the registry.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `name` - The identifier to check
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `true` if the function exists, `false` otherwise.
     pub fn contains(&self, name: &Identifier) -> bool {
         self.functions.contains_key(name)
@@ -998,6 +998,11 @@ pub mod data {
                 GraphicalFunctionData::UniformScale { y_values, .. } => y_values.len(),
                 GraphicalFunctionData::XYPairs { y_values, .. } => y_values.len(),
             }
+        }
+
+        /// Checks if the graphical function data is empty.
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
         }
 
         /// Evaluates the function at a given x-value based on the specified function type.
@@ -1399,11 +1404,8 @@ pub mod data {
             let mut warnings = Vec::new();
             let mut errors = Vec::new();
 
-            match x_scale {
-                Some(scale) => {
-                    validation_utils::_chain(scale.validate(), &mut warnings, &mut errors)
-                }
-                None => {}
+            if let Some(scale) = x_scale {
+                validation_utils::_chain(scale.validate(), &mut warnings, &mut errors)
             }
 
             validation_utils::_return(warnings, errors)
@@ -1413,11 +1415,8 @@ pub mod data {
             let mut warnings = Vec::new();
             let mut errors = Vec::new();
 
-            match y_scale {
-                Some(scale) => {
-                    validation_utils::_chain(scale.validate(), &mut warnings, &mut errors)
-                }
-                None => {}
+            if let Some(scale) = y_scale {
+                validation_utils::_chain(scale.validate(), &mut warnings, &mut errors)
             }
 
             validation_utils::_return(warnings, errors)
@@ -2294,7 +2293,7 @@ mod tests {
             let gf = GraphicalFunction::new(
                 None,
                 Some(GraphicalFunctionType::Extrapolate),
-                GraphicalFunctionData::xy_pairs(vec![0.0, 1.0], vec![0.0, 1.0], None).into(),
+                GraphicalFunctionData::xy_pairs(vec![0.0, 1.0], vec![0.0, 1.0], None),
             );
 
             // Test extrapolation with linear function (should maintain linearity)
@@ -2386,7 +2385,7 @@ mod tests {
             // Test evaluation between very close points
             let result = gf.evaluate(1.5e-15);
             assert!(
-                result >= 1.0 && result <= 2.0,
+                (1.0..=2.0).contains(&result),
                 "Result should be interpolated between 1.0 and 2.0"
             );
 

@@ -3,16 +3,16 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    model::vars::{Variable, Var},
-    types::ValidationResult,
     Identifier, Uid,
+    model::vars::{Var, Variable},
+    types::ValidationResult,
 };
 
 /// Extract variable name from a Variable enum variant
 pub fn get_variable_name(var: &Variable) -> Option<&Identifier> {
     match var {
         Variable::Auxiliary(aux) => aux.name(),
-        Variable::Stock(stock) => match stock {
+        Variable::Stock(stock) => match stock.as_ref() {
             crate::model::vars::stock::Stock::Basic(b) => b.name(),
             crate::model::vars::stock::Stock::Conveyor(c) => c.name(),
             crate::model::vars::stock::Stock::Queue(q) => q.name(),
@@ -29,22 +29,29 @@ pub fn get_variable_name(var: &Variable) -> Option<&Identifier> {
 pub fn validate_variable_name_uniqueness(variables: &[Variable]) -> ValidationResult {
     let warnings = Vec::new();
     let mut errors = Vec::new();
-    
+
     let mut seen_names: HashMap<String, Vec<usize>> = HashMap::new();
-    
+
     for (idx, var) in variables.iter().enumerate() {
         if let Some(name) = get_variable_name(var) {
             let name_str = name.to_string();
-            seen_names.entry(name_str).or_insert_with(Vec::new).push(idx);
+            seen_names.entry(name_str).or_default().push(idx);
         }
     }
-    
+
     for (name, indices) in seen_names {
         if indices.len() > 1 {
             let var_list = if indices.len() == 2 {
                 format!("positions {} and {}", indices[0], indices[1])
             } else {
-                format!("positions {}", indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "))
+                format!(
+                    "positions {}",
+                    indices
+                        .iter()
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             };
             errors.push(format!(
                 "Duplicate variable name '{}' found {} times in the model (at {}). Each variable must have a unique name. Consider renaming one or more of these variables.",
@@ -52,7 +59,7 @@ pub fn validate_variable_name_uniqueness(variables: &[Variable]) -> ValidationRe
             ));
         }
     }
-    
+
     if errors.is_empty() {
         ValidationResult::Valid(())
     } else {
@@ -64,77 +71,143 @@ pub fn validate_variable_name_uniqueness(variables: &[Variable]) -> ValidationRe
 pub fn validate_view_uids_unique(view: &crate::view::View) -> ValidationResult {
     let warnings = Vec::new();
     let mut errors = Vec::new();
-    
+
     let mut seen_uids: HashMap<Uid, Vec<String>> = HashMap::new();
-    
+
     // Collect all UIDs from view objects
     for stock in &view.stocks {
-        seen_uids.entry(stock.uid).or_insert_with(Vec::new).push(format!("stock '{}'", stock.name));
+        seen_uids
+            .entry(stock.uid)
+            .or_default()
+            .push(format!("stock '{}'", stock.name));
     }
     for flow in &view.flows {
-        seen_uids.entry(flow.uid).or_insert_with(Vec::new).push(format!("flow '{}'", flow.name));
+        seen_uids
+            .entry(flow.uid)
+            .or_default()
+            .push(format!("flow '{}'", flow.name));
     }
     for aux in &view.auxes {
-        seen_uids.entry(aux.uid).or_insert_with(Vec::new).push(format!("aux '{}'", aux.name));
+        seen_uids
+            .entry(aux.uid)
+            .or_default()
+            .push(format!("aux '{}'", aux.name));
     }
     for module in &view.modules {
-        seen_uids.entry(module.uid).or_insert_with(Vec::new).push(format!("module '{}'", module.name));
+        seen_uids
+            .entry(module.uid)
+            .or_default()
+            .push(format!("module '{}'", module.name));
     }
     for group in &view.groups {
-        seen_uids.entry(group.uid).or_insert_with(Vec::new).push(format!("group '{}'", group.name));
+        seen_uids
+            .entry(group.uid)
+            .or_default()
+            .push(format!("group '{}'", group.name));
     }
     for connector in &view.connectors {
-        seen_uids.entry(connector.uid).or_insert_with(Vec::new).push("connector".to_string());
+        seen_uids
+            .entry(connector.uid)
+            .or_default()
+            .push("connector".to_string());
     }
     for alias in &view.aliases {
-        seen_uids.entry(alias.uid).or_insert_with(Vec::new).push(format!("alias '{}'", alias.of));
+        seen_uids
+            .entry(alias.uid)
+            .or_default()
+            .push(format!("alias '{}'", alias.of));
     }
     for slider in &view.sliders {
-        seen_uids.entry(slider.uid).or_insert_with(Vec::new).push("slider".to_string());
+        seen_uids
+            .entry(slider.uid)
+            .or_default()
+            .push("slider".to_string());
     }
     for knob in &view.knobs {
-        seen_uids.entry(knob.uid).or_insert_with(Vec::new).push("knob".to_string());
+        seen_uids
+            .entry(knob.uid)
+            .or_default()
+            .push("knob".to_string());
     }
     for switch in &view.switches {
-        seen_uids.entry(switch.uid).or_insert_with(Vec::new).push("switch".to_string());
+        seen_uids
+            .entry(switch.uid)
+            .or_default()
+            .push("switch".to_string());
     }
     for options in &view.options {
-        seen_uids.entry(options.uid).or_insert_with(Vec::new).push("options".to_string());
+        seen_uids
+            .entry(options.uid)
+            .or_default()
+            .push("options".to_string());
     }
     for numeric_input in &view.numeric_inputs {
-        seen_uids.entry(numeric_input.uid).or_insert_with(Vec::new).push("numeric_input".to_string());
+        seen_uids
+            .entry(numeric_input.uid)
+            .or_default()
+            .push("numeric_input".to_string());
     }
     for list_input in &view.list_inputs {
-        seen_uids.entry(list_input.uid).or_insert_with(Vec::new).push("list_input".to_string());
+        seen_uids
+            .entry(list_input.uid)
+            .or_default()
+            .push("list_input".to_string());
     }
     for graphical_input in &view.graphical_inputs {
-        seen_uids.entry(graphical_input.uid).or_insert_with(Vec::new).push("graphical_input".to_string());
+        seen_uids
+            .entry(graphical_input.uid)
+            .or_default()
+            .push("graphical_input".to_string());
     }
     for numeric_display in &view.numeric_displays {
-        seen_uids.entry(numeric_display.uid).or_insert_with(Vec::new).push("numeric_display".to_string());
+        seen_uids
+            .entry(numeric_display.uid)
+            .or_default()
+            .push("numeric_display".to_string());
     }
     for lamp in &view.lamps {
-        seen_uids.entry(lamp.uid).or_insert_with(Vec::new).push("lamp".to_string());
+        seen_uids
+            .entry(lamp.uid)
+            .or_default()
+            .push("lamp".to_string());
     }
     for gauge in &view.gauges {
-        seen_uids.entry(gauge.uid).or_insert_with(Vec::new).push("gauge".to_string());
+        seen_uids
+            .entry(gauge.uid)
+            .or_default()
+            .push("gauge".to_string());
     }
     for graph in &view.graphs {
-        seen_uids.entry(graph.uid).or_insert_with(Vec::new).push("graph".to_string());
+        seen_uids
+            .entry(graph.uid)
+            .or_default()
+            .push("graph".to_string());
     }
     for table in &view.tables {
-        seen_uids.entry(table.uid).or_insert_with(Vec::new).push("table".to_string());
+        seen_uids
+            .entry(table.uid)
+            .or_default()
+            .push("table".to_string());
     }
     for text_box in &view.text_boxes {
-        seen_uids.entry(text_box.uid).or_insert_with(Vec::new).push("text_box".to_string());
+        seen_uids
+            .entry(text_box.uid)
+            .or_default()
+            .push("text_box".to_string());
     }
     for graphics_frame in &view.graphics_frames {
-        seen_uids.entry(graphics_frame.uid).or_insert_with(Vec::new).push("graphics_frame".to_string());
+        seen_uids
+            .entry(graphics_frame.uid)
+            .or_default()
+            .push("graphics_frame".to_string());
     }
     for button in &view.buttons {
-        seen_uids.entry(button.uid).or_insert_with(Vec::new).push("button".to_string());
+        seen_uids
+            .entry(button.uid)
+            .or_default()
+            .push("button".to_string());
     }
-    
+
     // Check for duplicates
     for (uid, locations) in seen_uids {
         if locations.len() > 1 {
@@ -146,7 +219,7 @@ pub fn validate_view_uids_unique(view: &crate::view::View) -> ValidationResult {
             ));
         }
     }
-    
+
     if errors.is_empty() {
         ValidationResult::Valid(())
     } else {
@@ -162,38 +235,42 @@ pub fn validate_dimension_references(
 ) -> ValidationResult {
     let warnings = Vec::new();
     let mut errors = Vec::new();
-    
+
     // Build set of defined dimension names
     let defined_dims: HashSet<String> = dimensions
         .as_ref()
-        .map(|dims| {
-            dims.dims
-                .iter()
-                .map(|dim| dim.name.clone())
-                .collect()
-        })
+        .map(|dims| dims.dims.iter().map(|dim| dim.name.clone()).collect())
         .unwrap_or_default();
-    
+
     // Check each variable's dimensions
     for var in variables {
         let var_name = get_variable_name(var)
             .map(|n| n.to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        
+
         let var_dims = match var {
             Variable::Auxiliary(aux) => aux.dimensions.as_ref().map(|d| {
-                d.dims.iter().map(|dim| dim.name.clone()).collect::<Vec<_>>()
+                d.dims
+                    .iter()
+                    .map(|dim| dim.name.clone())
+                    .collect::<Vec<_>>()
             }),
-            Variable::Stock(stock) => match stock {
-                crate::model::vars::stock::Stock::Basic(b) => b.dimensions.as_ref().map(|d| d.clone()),
-                crate::model::vars::stock::Stock::Conveyor(c) => c.dimensions.as_ref().map(|d| d.clone()),
-                crate::model::vars::stock::Stock::Queue(q) => q.dimensions.as_ref().map(|d| d.clone()),
+            Variable::Stock(stock) => match stock.as_ref() {
+                crate::model::vars::stock::Stock::Basic(b) => {
+                    b.dimensions.as_ref().map(|d| d.clone())
+                }
+                crate::model::vars::stock::Stock::Conveyor(c) => {
+                    c.dimensions.as_ref().map(|d| d.clone())
+                }
+                crate::model::vars::stock::Stock::Queue(q) => {
+                    q.dimensions.as_ref().map(|d| d.clone())
+                }
             },
             Variable::Flow(flow) => flow.dimensions.as_ref().map(|d| d.clone()),
             Variable::GraphicalFunction(gf) => gf.dimensions.as_ref().map(|d| d.clone()),
             _ => None,
         };
-        
+
         if let Some(dims) = var_dims {
             for dim_name in &dims {
                 if !defined_dims.contains(dim_name) {
@@ -205,7 +282,7 @@ pub fn validate_dimension_references(
             }
         }
     }
-    
+
     if errors.is_empty() {
         ValidationResult::Valid(())
     } else {
@@ -220,13 +297,13 @@ pub fn validate_view_object_references(
 ) -> ValidationResult {
     let warnings = Vec::new();
     let mut errors = Vec::new();
-    
+
     // Build set of variable names
     let var_names: HashSet<String> = variables
         .iter()
         .filter_map(|v| get_variable_name(v).map(|n| n.to_string()))
         .collect();
-    
+
     // Check stock objects
     for stock_obj in &view.stocks {
         let obj_name = stock_obj.name.to_string();
@@ -237,7 +314,7 @@ pub fn validate_view_object_references(
             ));
         }
     }
-    
+
     // Check flow objects
     for flow_obj in &view.flows {
         let obj_name = flow_obj.name.to_string();
@@ -248,7 +325,7 @@ pub fn validate_view_object_references(
             ));
         }
     }
-    
+
     // Check aux objects
     for aux_obj in &view.auxes {
         let obj_name = aux_obj.name.to_string();
@@ -259,7 +336,7 @@ pub fn validate_view_object_references(
             ));
         }
     }
-    
+
     // Check module objects
     for module_obj in &view.modules {
         let obj_name = module_obj.name.to_string();
@@ -270,7 +347,7 @@ pub fn validate_view_object_references(
             ));
         }
     }
-    
+
     if errors.is_empty() {
         ValidationResult::Valid(())
     } else {
@@ -285,13 +362,13 @@ pub fn validate_group_entity_references(
 ) -> ValidationResult {
     let warnings = Vec::new();
     let mut errors = Vec::new();
-    
+
     // Build set of variable names
     let var_names: HashSet<String> = variables
         .iter()
         .filter_map(|v| get_variable_name(v).map(|n| n.to_string()))
         .collect();
-    
+
     // Check each group's entities
     for group in groups {
         let group_name = group.name.to_string();
@@ -305,7 +382,7 @@ pub fn validate_group_entity_references(
             }
         }
     }
-    
+
     if errors.is_empty() {
         ValidationResult::Valid(())
     } else {
@@ -314,7 +391,7 @@ pub fn validate_group_entity_references(
 }
 
 /// Validate array elements for a variable.
-/// 
+///
 /// This validates:
 /// - Subscript indices match dimension bounds
 /// - All required elements are present for non-apply-to-all arrays
@@ -328,19 +405,16 @@ pub fn validate_array_elements(
 ) -> ValidationResult {
     let warnings = Vec::new();
     let mut errors = Vec::new();
-    
+
     // If no dimensions defined, can't validate
     let Some(dims) = dimensions else {
         return ValidationResult::Valid(());
     };
-    
+
     // Build a map of dimension name to dimension definition
-    let dim_map: HashMap<String, &crate::dimensions::Dimension> = dims
-        .dims
-        .iter()
-        .map(|d| (d.name.clone(), d))
-        .collect();
-    
+    let dim_map: HashMap<String, &crate::dimensions::Dimension> =
+        dims.dims.iter().map(|d| (d.name.clone(), d)).collect();
+
     // Get the dimension definitions for this variable in order
     let var_dim_defs: Vec<&crate::dimensions::Dimension> = var_dims
         .dims
@@ -348,9 +422,10 @@ pub fn validate_array_elements(
         .filter_map(|d| dim_map.get(&d.name))
         .copied()
         .collect();
-    
+
     if var_dim_defs.len() != var_dims.dims.len() {
-        let missing: Vec<String> = var_dims.dims
+        let missing: Vec<String> = var_dims
+            .dims
             .iter()
             .filter_map(|d| {
                 if !dim_map.contains_key(&d.name) {
@@ -366,21 +441,18 @@ pub fn validate_array_elements(
         ));
         return ValidationResult::Invalid(warnings, errors);
     }
-    
+
     // Calculate expected total number of elements
-    let expected_count: usize = var_dim_defs
-        .iter()
-        .map(|dim| dim.size())
-        .product();
-    
+    let expected_count: usize = var_dim_defs.iter().map(|dim| dim.size()).product();
+
     // Parse and validate each element's subscript
     let mut seen_subscripts = HashSet::new();
     let mut parsed_elements = Vec::new();
-    
+
     for (idx, element) in elements.iter().enumerate() {
         // Parse the subscript string (comma-separated indices)
         let indices: Vec<&str> = element.subscript.split(',').map(|s| s.trim()).collect();
-        
+
         if indices.len() != var_dims.dims.len() {
             errors.push(format!(
                 "Array element {} of variable '{}' has {} index(es) in subscript '{}', but the variable has {} dimension(s). The subscript must provide exactly one index per dimension, separated by commas (e.g., '0,1' for a 2D array).",
@@ -388,7 +460,7 @@ pub fn validate_array_elements(
             ));
             continue;
         }
-        
+
         // Validate each index against its dimension
         for (index_str, dim_def) in indices.iter().zip(var_dim_defs.iter()) {
             if !dim_def.is_valid_index(index_str) {
@@ -408,7 +480,7 @@ pub fn validate_array_elements(
                 }
             }
         }
-        
+
         // Check for duplicate subscripts
         if !seen_subscripts.insert(element.subscript.clone()) {
             errors.push(format!(
@@ -416,10 +488,10 @@ pub fn validate_array_elements(
                 idx, var_name, element.subscript
             ));
         }
-        
+
         parsed_elements.push((element.subscript.clone(), indices));
     }
-    
+
     // Check completeness: for non-apply-to-all arrays, all elements must be present
     if elements.len() != expected_count {
         errors.push(format!(
@@ -430,7 +502,7 @@ pub fn validate_array_elements(
             var_dims.dims.iter().map(|d| d.name.clone()).collect::<Vec<_>>()
         ));
     }
-    
+
     // Check that each element has either eqn or gf (but not both, and at least one)
     for (idx, element) in elements.iter().enumerate() {
         match (&element.eqn, &element.gf) {
@@ -449,7 +521,7 @@ pub fn validate_array_elements(
             _ => {} // Valid: has either eqn or gf but not both
         }
     }
-    
+
     if errors.is_empty() {
         ValidationResult::Valid(())
     } else {

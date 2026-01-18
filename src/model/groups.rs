@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    model::object::{Document, Documentation, Object},
     Identifier, Uid,
+    model::object::{Document, Documentation, Object},
 };
 
 /// Helper struct for deserializing entity tags within groups

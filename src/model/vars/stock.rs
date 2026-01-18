@@ -41,7 +41,7 @@ pub trait StockVar<'a>: Var<'a> + Object + Document + Measure {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stock {
     Basic(BasicStock),
-    Conveyor(ConveyorStock),
+    Conveyor(Box<ConveyorStock>),
     Queue(QueueStock),
 }
 
@@ -94,11 +94,11 @@ struct RawStock {
     #[cfg(feature = "arrays")]
     #[serde(rename = "dimensions")]
     dimensions: Option<VariableDimensions>,
-    
+
     #[cfg(feature = "arrays")]
     #[serde(rename = "element", default)]
     elements: Vec<ArrayElement>,
-    
+
     #[serde(rename = "event_poster")]
     event_poster: Option<EventPoster>,
 }
@@ -309,7 +309,7 @@ impl From<Stock> for RawStock {
     fn from(stock: Stock) -> Self {
         match stock {
             Stock::Basic(basic) => RawStock::from(basic),
-            Stock::Conveyor(conveyor) => RawStock::from(conveyor),
+            Stock::Conveyor(conveyor) => RawStock::from(conveyor.as_ref().clone()),
             Stock::Queue(queue) => RawStock::from(queue),
         }
     }
@@ -340,9 +340,9 @@ impl<'de> Deserialize<'de> for Stock {
         match stock_kind {
             StockKind::Normal => Ok(Stock::Basic(BasicStock::from(raw_stock))),
             StockKind::NonNegative => Ok(Stock::Basic(BasicStock::from(raw_stock))),
-            StockKind::Conveyor => Ok(Stock::Conveyor(
+            StockKind::Conveyor => Ok(Stock::Conveyor(Box::new(
                 ConveyorStock::try_from(raw_stock).map_err(serde::de::Error::custom)?,
-            )),
+            ))),
             StockKind::Queue => Ok(Stock::Queue(QueueStock::from(raw_stock))),
         }
     }
@@ -477,14 +477,16 @@ impl From<RawStock> for BasicStock {
             inflows: raw.inflows,
             outflows: raw.outflows,
             initial_equation: raw.initial_equation,
-            non_negative: raw.non_negative.map(|nn| nn.value.map(Into::into)),
+            non_negative: raw.non_negative.map(|nn| nn.value),
             units: raw.units,
             documentation: raw.documentation,
             range: raw.range,
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -660,7 +662,9 @@ impl TryFrom<RawStock> for ConveyorStock {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -794,7 +798,9 @@ impl From<RawStock> for QueueStock {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -1239,7 +1245,10 @@ mod tests {
             Stock::Basic(basic_stock) => {
                 // Verify equation() method returns the initial equation
                 let equation = basic_stock.equation();
-                assert!(equation.is_some(), "equation() should return Some for stocks");
+                assert!(
+                    equation.is_some(),
+                    "equation() should return Some for stocks"
+                );
                 // The equation should match the initial_equation
                 assert_eq!(equation.unwrap(), &basic_stock.initial_equation);
             }
@@ -1266,7 +1275,10 @@ mod tests {
             Stock::Conveyor(conveyor_stock) => {
                 // Verify equation() method returns the initial equation
                 let equation = conveyor_stock.equation();
-                assert!(equation.is_some(), "equation() should return Some for conveyor stocks");
+                assert!(
+                    equation.is_some(),
+                    "equation() should return Some for conveyor stocks"
+                );
                 assert_eq!(equation.unwrap(), &conveyor_stock.initial_equation);
             }
             _ => panic!("Expected ConveyorStock"),
@@ -1290,7 +1302,10 @@ mod tests {
             Stock::Queue(queue_stock) => {
                 // Verify equation() method returns the initial equation
                 let equation = queue_stock.equation();
-                assert!(equation.is_some(), "equation() should return Some for queue stocks");
+                assert!(
+                    equation.is_some(),
+                    "equation() should return Some for queue stocks"
+                );
                 assert_eq!(equation.unwrap(), &queue_stock.initial_equation);
             }
             _ => panic!("Expected QueueStock"),
@@ -1322,7 +1337,10 @@ mod tests {
                 // Verify mathml_equation() method works
                 let mathml = basic_stock.mathml_equation();
                 assert!(mathml.is_some());
-                assert_eq!(mathml.unwrap(), basic_stock.mathml_equation.as_ref().unwrap());
+                assert_eq!(
+                    mathml.unwrap(),
+                    basic_stock.mathml_equation.as_ref().unwrap()
+                );
             }
             _ => panic!("Expected BasicStock"),
         }

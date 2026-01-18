@@ -4,22 +4,21 @@
 //! and parsed again while maintaining data integrity.
 
 use xmile::xml::schema::XmileFile;
-use serde_xml_rs;
 
 /// Helper function to perform a round-trip: parse → serialize → parse → compare
 fn round_trip_test(xml: &str, description: &str) {
     // First parse
     let file1 = XmileFile::from_str(xml)
         .unwrap_or_else(|e| panic!("Failed to parse {}: {:?}", description, e));
-    
+
     // Serialize back to XML
     let serialized = serde_xml_rs::to_string(&file1)
         .unwrap_or_else(|e| panic!("Failed to serialize {}: {:?}", description, e));
-    
+
     // Parse the serialized XML
     let file2 = XmileFile::from_str(&serialized)
         .unwrap_or_else(|e| panic!("Failed to re-parse {}: {:?}", description, e));
-    
+
     // Compare the two parsed files
     assert_eq!(file1, file2, "Round-trip failed for {}", description);
 }
@@ -44,7 +43,7 @@ fn test_round_trip_basic_model() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "basic model");
 }
 
@@ -69,7 +68,7 @@ fn test_round_trip_with_groups() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with groups");
 }
 
@@ -98,7 +97,7 @@ fn test_round_trip_with_flows() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with flows");
 }
 
@@ -120,7 +119,7 @@ fn test_round_trip_with_documentation() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with documentation");
 }
 
@@ -146,7 +145,7 @@ fn test_round_trip_with_sim_specs() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with sim_specs");
 }
 
@@ -170,7 +169,7 @@ fn test_round_trip_with_behavior() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with behavior");
 }
 
@@ -199,7 +198,7 @@ fn test_round_trip_with_macros() {
         </model>
     </xmile>
     "#;
-    
+
     // Try round-trip, but don't fail if macro serialization has issues
     if let Ok(file) = XmileFile::from_str(xml) {
         if let Ok(serialized) = serde_xml_rs::to_string(&file) {
@@ -231,7 +230,7 @@ fn test_round_trip_with_modules() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with modules");
 }
 
@@ -259,7 +258,7 @@ fn test_round_trip_multiple_models() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "multiple models");
 }
 
@@ -281,7 +280,7 @@ fn test_round_trip_with_optional_fields() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with optional header fields");
 }
 
@@ -303,16 +302,16 @@ fn test_serialize_with_none_fields() {
         </model>
     </xmile>
     "#;
-    
+
     let file = XmileFile::from_str(xml).expect("Failed to parse");
-    
+
     // Serialize - should not panic even with None fields
     let serialized = serde_xml_rs::to_string(&file).expect("Failed to serialize");
-    
+
     // Should be valid XML
     assert!(serialized.contains("<xmile"));
     assert!(serialized.contains("version=\"1.0\""));
-    
+
     // Should be parseable
     let _parsed = XmileFile::from_str(&serialized).expect("Failed to re-parse serialized XML");
 }
@@ -331,7 +330,7 @@ fn test_round_trip_minimal() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "minimal XMILE file");
 }
 
@@ -339,41 +338,42 @@ fn test_round_trip_minimal() {
 #[test]
 fn test_round_trip_teacup_example() {
     let xml = include_str!("../data/examples/teacup.xmile");
-    
+
     // Parse the teacup example - should now work with quoted identifier support
-    let file = XmileFile::from_str(xml)
-        .expect("Failed to parse teacup example - this should work now with quoted identifier support");
-    
+    let file = XmileFile::from_str(xml).expect(
+        "Failed to parse teacup example - this should work now with quoted identifier support",
+    );
+
     // Test round-trip
-    let serialized = serde_xml_rs::to_string(&file)
-        .expect("Failed to serialize teacup example");
-    
-    let file2 = XmileFile::from_str(&serialized)
-        .expect("Failed to re-parse serialized teacup example");
-    
+    let serialized = serde_xml_rs::to_string(&file).expect("Failed to serialize teacup example");
+
+    let file2 =
+        XmileFile::from_str(&serialized).expect("Failed to re-parse serialized teacup example");
+
     // Compare key fields
     assert_eq!(file.version, file2.version);
     assert_eq!(file.xmlns, file2.xmlns);
     assert_eq!(file.header.vendor, file2.header.vendor);
     assert_eq!(file.models.len(), file2.models.len());
-    
+
     if !file.models.is_empty() && !file2.models.is_empty() {
         assert_eq!(
             file.models[0].variables.variables.len(),
             file2.models[0].variables.variables.len()
         );
-        
+
         // Verify the expression with quoted identifiers was parsed correctly
         for (idx, var) in file.models[0].variables.variables.iter().enumerate() {
-            match var {
-                xmile::model::vars::Variable::Flow(flow) => {
-                    assert!(flow.equation.is_some(), "Flow at index {} should have an equation", idx);
-                }
-                _ => {}
+            if let xmile::model::vars::Variable::Flow(flow) = var {
+                assert!(
+                    flow.equation.is_some(),
+                    "Flow at index {} should have an equation",
+                    idx
+                );
             }
         }
     }
-    
+
     // Full equality check - should work now
     assert_eq!(file, file2, "Round-trip should preserve all data");
 }
@@ -396,16 +396,16 @@ fn test_round_trip_empty_collections() {
         </model>
     </xmile>
     "#;
-    
+
     let file = XmileFile::from_str(xml).expect("Failed to parse");
-    
+
     // Verify empty collections are handled
-    assert!(file.models[0].variables.variables.len() > 0);
-    
+    assert!(!file.models[0].variables.variables.is_empty());
+
     // Serialize and re-parse
     let serialized = serde_xml_rs::to_string(&file).expect("Failed to serialize");
     let file2 = XmileFile::from_str(&serialized).expect("Failed to re-parse");
-    
+
     assert_eq!(file, file2);
 }
 
@@ -430,7 +430,7 @@ fn test_round_trip_special_characters() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with special characters in names");
 }
 
@@ -458,15 +458,15 @@ fn test_round_trip_variable_order() {
         </model>
     </xmile>
     "#;
-    
+
     let file1 = XmileFile::from_str(xml).expect("Failed to parse");
     let serialized = serde_xml_rs::to_string(&file1).expect("Failed to serialize");
     let file2 = XmileFile::from_str(&serialized).expect("Failed to re-parse");
-    
+
     // Check that variable order is preserved
     let vars1 = &file1.models[0].variables.variables;
     let vars2 = &file2.models[0].variables.variables;
-    
+
     assert_eq!(vars1.len(), vars2.len());
     // Note: Exact order preservation depends on serde-xml-rs behavior
     // We at least verify the count matches
@@ -490,13 +490,16 @@ fn test_round_trip_xmlns_preservation() {
         </model>
     </xmile>
     "#;
-    
+
     let file1 = XmileFile::from_str(xml).expect("Failed to parse");
-    assert_eq!(file1.xmlns, "http://docs.oasis-open.org/xmile/ns/XMILE/v1.0");
-    
+    assert_eq!(
+        file1.xmlns,
+        "http://docs.oasis-open.org/xmile/ns/XMILE/v1.0"
+    );
+
     let serialized = serde_xml_rs::to_string(&file1).expect("Failed to serialize");
     assert!(serialized.contains("xmlns=\"http://docs.oasis-open.org/xmile/ns/XMILE/v1.0\""));
-    
+
     let file2 = XmileFile::from_str(&serialized).expect("Failed to re-parse");
     assert_eq!(file1.xmlns, file2.xmlns);
 }
@@ -534,7 +537,7 @@ fn test_round_trip_with_arrays() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with arrays");
 }
 
@@ -575,7 +578,7 @@ fn test_round_trip_with_named_dimensions() {
         </model>
     </xmile>
     "#;
-    
+
     round_trip_test(xml, "model with named dimension arrays");
 }
 
@@ -613,7 +616,7 @@ fn test_round_trip_arrays_and_macros() {
         </model>
     </xmile>
     "#;
-    
+
     // Test that arrays and macros work together
     // Note: Round-trip may have issues with optional field serialization in serde-xml-rs,
     // particularly with #text fields. We verify that parsing works.
@@ -622,12 +625,9 @@ fn test_round_trip_arrays_and_macros() {
             // Verify arrays and macros are present
             assert_eq!(file.models.len(), 1);
             if !file.models.is_empty() {
-                assert_eq!(
-                    file.models[0].variables.variables.len(),
-                    1
-                );
+                assert_eq!(file.models[0].variables.variables.len(), 1);
             }
-            
+
             // Try serialization - if it fails due to serde-xml-rs quirks, that's okay
             // The important thing is that parsing works
             if let Ok(serialized) = serde_xml_rs::to_string(&file) {
@@ -668,12 +668,12 @@ fn test_round_trip_with_mathml() {
         </model>
     </xmile>
     "#;
-    
+
     // Test that MathML is preserved
     let file = XmileFile::from_str(xml).expect("Failed to parse");
     let serialized = serde_xml_rs::to_string(&file).expect("Failed to serialize");
     let file2 = XmileFile::from_str(&serialized).expect("Failed to re-parse");
-    
+
     // Verify MathML is preserved
     assert_eq!(file.models.len(), file2.models.len());
 }
@@ -717,7 +717,7 @@ fn test_round_trip_all_features() {
         </model>
     </xmile>
     "#;
-    
+
     // Note: Round-trip may have issues with optional field serialization in serde-xml-rs,
     // particularly with #text fields. We verify that parsing works with all features.
     // If parsing fails due to serde-xml-rs quirks, we skip this test.
@@ -726,12 +726,9 @@ fn test_round_trip_all_features() {
             // Verify structure
             assert_eq!(file.models.len(), 1);
             if !file.models.is_empty() {
-                assert_eq!(
-                    file.models[0].variables.variables.len(),
-                    2
-                );
+                assert_eq!(file.models[0].variables.variables.len(), 2);
             }
-            
+
             // Try round-trip - if it fails due to serde-xml-rs quirks, that's okay
             // The important thing is that parsing works with all features enabled
             if let Ok(serialized) = serde_xml_rs::to_string(&file) {

@@ -95,7 +95,7 @@ pub enum ProcessingError {
 pub fn full_to_half_width(ch: char) -> char {
     const FULL_WIDTH_OFFSET: u32 = 0xFF00 - 0x0020;
     match ch as u32 {
-        code if code >= 0xFF01 && code <= 0xFF5E => {
+        code if (0xFF01..=0xFF5E).contains(&code) => {
             char::from_u32(code - FULL_WIDTH_OFFSET).unwrap_or(ch)
         }
         _ => ch,
@@ -344,8 +344,7 @@ pub fn xmile_normalize(input: &str) -> WithWarnings<String, String> {
     let mut reading_whitespace = false;
 
     // Iterate through characters, applying XMILE whitespace rules
-    let mut chars = input.chars();
-    while let Some(ch) = chars.next() {
+    for ch in input.chars() {
         match ch {
             // XMILE whitespace equivalences: space, underscore, newline, non-breaking space
             ' ' | '_' | '\n' | '\u{00A0}' => {
@@ -496,7 +495,7 @@ pub fn unicode_char_warnings(ch: char) -> WithWarnings<(), String> {
     let mut warnings = Vec::new();
 
     // Check for full-width ASCII characters
-    if codepoint >= 0xFF01 && codepoint <= 0xFF5E {
+    if (0xFF01..=0xFF5E).contains(&codepoint) {
         warnings.push(format!(
             "Full-width character '{}' (U+{:04X}) found. Consider using half-width equivalent.",
             ch, codepoint

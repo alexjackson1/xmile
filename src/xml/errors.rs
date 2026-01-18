@@ -30,18 +30,30 @@ pub enum XmileError {
     },
 
     /// Validation error (file structure is valid but violates XMILE rules).
-    #[error("Validation error{context}: {message}")]
-    Validation {
-        message: String,
-        context: ErrorContext,
-        warnings: Vec<String>,
-        errors: Vec<String>,
-    },
+    #[error("{0}")]
+    Validation(Box<ValidationError>),
 
     /// Multiple errors occurred during parsing or validation.
     #[error("Multiple errors occurred:\n{}", format_errors(.0))]
     Multiple(Vec<XmileError>),
 }
+
+/// Validation error details
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidationError {
+    pub message: String,
+    pub context: ErrorContext,
+    pub warnings: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Validation error{}: {}", self.context, self.message)
+    }
+}
+
+impl std::error::Error for ValidationError {}
 
 fn format_errors(errors: &[XmileError]) -> String {
     errors
@@ -162,9 +174,7 @@ pub struct ErrorCollection {
 impl ErrorCollection {
     /// Create a new empty error collection.
     pub fn new() -> Self {
-        Self {
-            errors: Vec::new(),
-        }
+        Self { errors: Vec::new() }
     }
 
     /// Add an error to the collection.
@@ -189,7 +199,7 @@ impl ErrorCollection {
         } else if self.errors.len() == 1 {
             Some(self.errors.into_iter().next().unwrap())
         } else {
-            Some(            XmileError::Multiple(self.errors))
+            Some(XmileError::Multiple(self.errors))
         }
     }
 
@@ -214,12 +224,12 @@ impl From<Vec<XmileError>> for ErrorCollection {
 impl From<ErrorCollection> for XmileError {
     fn from(collection: ErrorCollection) -> Self {
         collection.into_error().unwrap_or_else(|| {
-            XmileError::Validation {
+            XmileError::Validation(Box::new(ValidationError {
                 message: "Unknown error".to_string(),
                 context: ErrorContext::new(),
                 warnings: Vec::new(),
                 errors: Vec::new(),
-            }
+            }))
         })
     }
 }
@@ -233,20 +243,20 @@ impl ToXmileError for crate::types::ValidationResult {
     fn to_xmile_error(self, context: ErrorContext) -> XmileError {
         match self {
             crate::types::ValidationResult::Valid(_) => {
-                XmileError::Validation {
+                XmileError::Validation(Box::new(ValidationError {
                     message: "Validation passed".to_string(),
                     context,
                     warnings: Vec::new(),
                     errors: Vec::new(),
-                }
+                }))
             }
             crate::types::ValidationResult::Warnings(_, warnings) => {
-                XmileError::Validation {
+                XmileError::Validation(Box::new(ValidationError {
                     message: format!("Validation passed with {} warning(s)", warnings.len()),
                     context,
                     warnings,
                     errors: Vec::new(),
-                }
+                }))
             }
             crate::types::ValidationResult::Invalid(warnings, errors) => {
                 let error_count = errors.len();
@@ -255,12 +265,12 @@ impl ToXmileError for crate::types::ValidationResult {
                 } else {
                     format!("{} validation errors", error_count)
                 };
-                XmileError::Validation {
+                XmileError::Validation(Box::new(ValidationError {
                     message,
                     context,
                     warnings,
                     errors,
-                }
+                }))
             }
         }
     }

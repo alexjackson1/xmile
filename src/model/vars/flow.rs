@@ -73,11 +73,11 @@ struct RawFlow {
     #[cfg(feature = "arrays")]
     #[serde(rename = "dimensions")]
     dimensions: Option<VariableDimensions>,
-    
+
     #[cfg(feature = "arrays")]
     #[serde(rename = "element", default)]
     elements: Vec<ArrayElement>,
-    
+
     #[serde(rename = "event_poster")]
     event_poster: Option<EventPoster>,
 }
@@ -185,7 +185,10 @@ impl From<&BasicFlow> for RawFlow {
             dimensions: flow.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
                 VariableDimensions {
-                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                    dims: dims
+                        .iter()
+                        .map(|name| Dimension { name: name.clone() })
+                        .collect(),
                 }
             }),
             #[cfg(feature = "arrays")]
@@ -219,7 +222,10 @@ impl From<&QueueOverflow> for RawFlow {
             dimensions: flow.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
                 VariableDimensions {
-                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                    dims: dims
+                        .iter()
+                        .map(|name| Dimension { name: name.clone() })
+                        .collect(),
                 }
             }),
             #[cfg(feature = "arrays")]
@@ -253,7 +259,10 @@ impl From<&ConveyorLeakage> for RawFlow {
             dimensions: flow.dimensions.as_ref().map(|dims| {
                 use crate::model::vars::array::{Dimension, VariableDimensions};
                 VariableDimensions {
-                    dims: dims.iter().map(|name| Dimension { name: name.clone() }).collect(),
+                    dims: dims
+                        .iter()
+                        .map(|name| Dimension { name: name.clone() })
+                        .collect(),
                 }
             }),
             #[cfg(feature = "arrays")]
@@ -408,7 +417,9 @@ impl From<RawFlow> for BasicFlow {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -504,7 +515,9 @@ impl From<RawFlow> for QueueOverflow {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,
@@ -614,7 +627,9 @@ impl TryFrom<RawFlow> for ConveyorLeakage {
             scale: raw.scale,
             format: raw.format,
             #[cfg(feature = "arrays")]
-            dimensions: raw.dimensions.map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
+            dimensions: raw
+                .dimensions
+                .map(|dims| dims.dims.into_iter().map(|d| d.name).collect()),
             #[cfg(feature = "arrays")]
             elements: raw.elements,
             event_poster: raw.event_poster,

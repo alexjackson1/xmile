@@ -238,8 +238,7 @@ impl Identifier {
         // Validate and warn about Unicode issues
         input
             .chars()
-            .map(|w| utils::unicode_char_warnings(w).warnings())
-            .flatten()
+            .flat_map(|w| utils::unicode_char_warnings(w).warnings())
             .for_each(|w| warn!("{}", w));
 
         parse_identifier(input, options)
@@ -493,10 +492,10 @@ impl Identifier {
             .chain(Self::RESERVED_FUNCTIONS.iter());
 
         for reserved in all_reserved {
-            if let Ok(reserved_key) = utils::uca_case_fold(reserved) {
-                if input_key == reserved_key {
-                    return true;
-                }
+            if let Ok(reserved_key) = utils::uca_case_fold(reserved)
+                && input_key == reserved_key
+            {
+                return true;
             }
         }
 
@@ -518,7 +517,7 @@ fn normalize_identifier(input: &str) -> Result<String, IdentifierError> {
 
     // Normalize using NFKC
     let nfkc_normalized =
-        utils::nfkc_normalize(&preprocessed).map_err(|e| IdentifierError::ProcessingError(e))?;
+        utils::nfkc_normalize(&preprocessed).map_err(IdentifierError::ProcessingError)?;
 
     // Apply XMILE whitespace normalization (but not case folding for display)
     let (whitespace_normalized, warnings) = utils::xmile_normalize(&nfkc_normalized).into();
@@ -534,7 +533,7 @@ fn normalize_identifier(input: &str) -> Result<String, IdentifierError> {
 /// This key incorporates case folding and is used for efficient comparison
 /// and hashing whilst maintaining XMILE equivalence semantics.
 fn make_compare_key(normalized: &str) -> Result<String, IdentifierError> {
-    utils::uca_compare_key(&normalized).map_err(|e| IdentifierError::ProcessingError(e))
+    utils::uca_compare_key(normalized).map_err(IdentifierError::ProcessingError)
 }
 
 /// Options for parsing identifiers in XMILE.
@@ -610,7 +609,7 @@ fn parse_qualified_identifier(
 ) -> Result<Identifier, IdentifierError> {
     // Split by dots to get all components
     let parts: Vec<&str> = input.split('.').collect();
-    
+
     if parts.len() < 2 {
         return Err(IdentifierError::InvalidQualifiedName);
     }
@@ -631,7 +630,10 @@ fn parse_qualified_identifier(
     }
 
     // Parse the identifier part (may be quoted or unquoted)
-    let identifier = if identifier_part.starts_with('"') && identifier_part.ends_with('"') && identifier_part.len() >= 2 {
+    let identifier = if identifier_part.starts_with('"')
+        && identifier_part.ends_with('"')
+        && identifier_part.len() >= 2
+    {
         parse_quoted_identifier(identifier_part)?
     } else {
         parse_unquoted_identifier(identifier_part, options)?
@@ -668,13 +670,13 @@ fn parse_quoted_identifier(input: &str) -> Result<Identifier, IdentifierError> {
     // Create a UCA-compliant comparison key
     let comparison = make_compare_key(&normalized)?;
 
-    return Ok(Identifier {
+    Ok(Identifier {
         raw: input.to_string(),
         normalized,
         compare_key: comparison,
         namespace_path: vec![],
         quoted: true,
-    });
+    })
 }
 
 /// Parses an unquoted identifier according to XMILE rules.
@@ -786,7 +788,7 @@ impl Identifier {
             Ordering::Equal => {
                 // Then use UCA comparison for the identifiers
                 utils::uca_compare(&self.normalized, &other.normalized)
-                    .map_err(|e| IdentifierError::ProcessingError(e))
+                    .map_err(IdentifierError::ProcessingError)
             }
             ord => Ok(ord),
         }
@@ -799,12 +801,12 @@ impl Identifier {
         }
 
         utils::uca_equal(&self.normalized, &other.normalized)
-            .map_err(|e| IdentifierError::ProcessingError(e))
+            .map_err(IdentifierError::ProcessingError)
     }
 
     /// Checks if this identifier is equal to a string using UCA rules.
     fn uca_equal_str(&self, other: &str) -> Result<bool, IdentifierError> {
-        utils::uca_equal(&self.normalized, other).map_err(|e| IdentifierError::ProcessingError(e))
+        utils::uca_equal(&self.normalized, other).map_err(IdentifierError::ProcessingError)
     }
 }
 
@@ -952,7 +954,7 @@ mod tests {
     #[test]
     fn test_qualified_name() {
         let id = Identifier::from_str("funcs.find").unwrap();
-        assert_eq!(id.namespace_path(), &Namespace::from_str("funcs"));
+        assert_eq!(id.namespace_path(), &Namespace::from_parts_str("funcs"));
         assert_eq!(id.unqualified(), "find");
         assert!(id.is_qualified());
     }
@@ -961,22 +963,22 @@ mod tests {
     fn test_nested_qualified_name() {
         // Test nested qualification like module.submodel.value
         let id = Identifier::from_str("module.submodel.value").unwrap();
-        let expected_path = Namespace::from_str("module.submodel");
+        let expected_path = Namespace::from_parts_str("module.submodel");
         assert_eq!(id.namespace_path(), &expected_path);
         assert_eq!(id.namespace_path().len(), 2);
         assert_eq!(id.unqualified(), "value");
         assert!(id.is_qualified());
-        
+
         // Test three-level nesting
         let id2 = Identifier::from_str("a.b.c.d").unwrap();
-        let expected_path2 = Namespace::from_str("a.b.c");
+        let expected_path2 = Namespace::from_parts_str("a.b.c");
         assert_eq!(id2.namespace_path(), &expected_path2);
         assert_eq!(id2.namespace_path().len(), 3);
         assert_eq!(id2.unqualified(), "d");
-        
+
         // Test with predefined namespaces
         let id3 = Identifier::from_str("std.user.custom.function").unwrap();
-        let expected_path3 = Namespace::from_str("std.user.custom");
+        let expected_path3 = Namespace::from_parts_str("std.user.custom");
         assert_eq!(id3.namespace_path(), &expected_path3);
         assert_eq!(id3.namespace_path().len(), 3);
         assert_eq!(id3.unqualified(), "function");
@@ -985,13 +987,13 @@ mod tests {
     #[test]
     fn test_predefined_namespace() {
         let id = Identifier::from_str("std.func").unwrap();
-        assert_eq!(id.namespace_path(), &Namespace::from_str("std"));
+        assert_eq!(id.namespace_path(), &Namespace::from_parts_str("std"));
 
         let id2 = Identifier::from_str("vensim.function").unwrap();
-        assert_eq!(id2.namespace_path(), &Namespace::from_str("vensim"));
+        assert_eq!(id2.namespace_path(), &Namespace::from_parts_str("vensim"));
 
         let id3 = Identifier::from_str("user.custom").unwrap();
-        assert_eq!(id3.namespace_path(), &Namespace::from_str("user"));
+        assert_eq!(id3.namespace_path(), &Namespace::from_parts_str("user"));
     }
 
     #[test]
@@ -1049,7 +1051,7 @@ mod tests {
 
     #[test]
     fn test_ordering_with_namespaces() {
-        let mut identifiers = vec![
+        let mut identifiers = [
             Identifier::from_str("zebra").unwrap(),
             Identifier::from_str("apple").unwrap(),
             Identifier::from_str("banana").unwrap(),
